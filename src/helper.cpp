@@ -2,6 +2,39 @@
 
 #include "SDL_gpu_shadercross.h"
 
+SDL_GPUComputePipeline* CreateComputePipelineFromShader(
+    SDL_GPUDevice* device,
+    const char* filename,
+    SDL_GPUComputePipelineCreateInfo* createInfo
+) {
+    const char* basePath = SDL_GetBasePath();
+	char fullPath[256];
+	SDL_snprintf(fullPath, sizeof(fullPath), "%sres/shaders/%s.spv", basePath, filename);
+
+	size_t codeSize;
+	void* code = SDL_LoadFile(fullPath, &codeSize);
+	if (code == NULL) {
+		SDL_Log("Failed to load compute shader from disk! %s", fullPath);
+		return NULL;
+	}
+
+	SDL_GPUComputePipelineCreateInfo newCreateInfo = *createInfo;
+	newCreateInfo.code = static_cast<const Uint8 *>(code);
+	newCreateInfo.code_size = codeSize;
+	newCreateInfo.entrypoint = "main";
+	newCreateInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+
+	SDL_GPUComputePipeline* pipeline = SDL_ShaderCross_CompileComputePipelineFromSPIRV(device, &newCreateInfo);
+	if (pipeline == NULL) {
+		SDL_Log("Failed to create compute pipeline!");
+		SDL_free(code);
+		return NULL;
+	}
+
+	SDL_free(code);
+	return pipeline;
+}
+
 SDL_GPUShader* LoadShader(
 	SDL_GPUDevice* device,
 	const char* filename,
@@ -20,9 +53,9 @@ SDL_GPUShader* LoadShader(
 		return NULL;
 	}
 
-    const char* BasePath = SDL_GetBasePath();
+    const char* basePath = SDL_GetBasePath();
 	char fullPath[256];
-	SDL_snprintf(fullPath, sizeof(fullPath), "%sres/shaders/%s.spv", BasePath, filename);
+	SDL_snprintf(fullPath, sizeof(fullPath), "%sres/shaders/%s.spv", basePath, filename);
 
 	size_t codeSize;
 	void* code = SDL_LoadFile(fullPath, &codeSize);
