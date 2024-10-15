@@ -31,7 +31,7 @@ target_compile_features(main PRIVATE cxx_std_20)
 set_target_properties(main PROPERTIES CXX_EXTENSIONS OFF)
 target_link_libraries(main PRIVATE fmt::fmt spdlog::spdlog SDL3::SDL3)
 
-file(GLOB_RECURSE SHADER_SOURCES
+file(GLOB_RECURSE SHADER_SOURCES CONFIGURE_DEPENDS
 	${CMAKE_CURRENT_SOURCE_DIR}/res/shaders/*.vert
 	${CMAKE_CURRENT_SOURCE_DIR}/res/shaders/*.frag
 	${CMAKE_CURRENT_SOURCE_DIR}/res/shaders/*.comp
