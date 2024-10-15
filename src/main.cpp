@@ -2,10 +2,12 @@
 #define SDL_GPU_SHADERCROSS_IMPLEMENTATION
 #include "SDL_gpu_shadercross.h"
 #include <unordered_map>
+#include <array>
 
 #include "helper.hpp"
 
 #include "fmt/core.h"
+
 
 bool UseWireframeMode = false;
 bool UseSmallViewport = false;
@@ -18,6 +20,24 @@ struct PositionTextureVertex {
     float x, y, z;
     float u, v;
 };
+std::array<PositionTextureVertex, 6> quad = {{
+    { -1, -1, 0, 0, 0 },
+    {  1, -1, 0, 1, 0 },
+	{  1,  1, 0, 1, 1 },
+	{ -1, -1, 0, 0, 0 },
+	{  1,  1, 0, 1, 1 },
+	{ -1,  1, 0, 0, 1 }
+}};
+// Same as:
+// PositionTextureVertex quad[6] = {
+//     { -1, -1, 0, 0, 0 },
+// 	{  1, -1, 0, 1, 0 },
+// 	{  1,  1, 0, 1, 1 },
+// 	{ -1, -1, 0, 0, 0 },
+// 	{  1,  1, 0, 1, 1 },
+// 	{ -1,  1, 0, 0, 1 }
+// };
+
 int windowWidth, windowHeight;
 
 int main(int argc, char* args[]) {
@@ -135,13 +155,13 @@ int main(int argc, char* args[]) {
     // Create buffers
     SDL_GPUBufferCreateInfo bufferCreateInfo = {
         .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
-        .size = sizeof(PositionTextureVertex) * 6
+        .size = sizeof(PositionTextureVertex) * quad.size()
     };
     SDL_GPUBuffer* vertexBuffer = SDL_CreateGPUBuffer(device, &bufferCreateInfo);
 
     SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = sizeof(PositionTextureVertex) * 6
+        .size = sizeof(PositionTextureVertex) * quad.size()
     };
     SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(
 		device,
@@ -155,13 +175,7 @@ int main(int argc, char* args[]) {
             false
         )
 	);
-    transferData[0] = (PositionTextureVertex) { -1, -1, 0, 0, 0 };
-	transferData[1] = (PositionTextureVertex) {  1, -1, 0, 1, 0 };
-	transferData[2] = (PositionTextureVertex) {  1,  1, 0, 1, 1 };
-	transferData[3] = (PositionTextureVertex) { -1, -1, 0, 0, 0 };
-	transferData[4] = (PositionTextureVertex) {  1,  1, 0, 1, 1 };
-	transferData[5] = (PositionTextureVertex) { -1,  1, 0, 0, 1 };
-
+    memcpy(transferData, quad.data(), sizeof(PositionTextureVertex) * quad.size());
 	SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
     // Upload data to GPU
@@ -175,7 +189,7 @@ int main(int argc, char* args[]) {
     SDL_GPUBufferRegion bufferRegion = {
         .buffer = vertexBuffer,
         .offset = 0,
-        .size = sizeof(PositionTextureVertex) * 6
+        .size = sizeof(PositionTextureVertex) * quad.size()
     };
 	SDL_UploadToGPUBuffer(
 		copyPass,
@@ -266,7 +280,7 @@ int main(int argc, char* args[]) {
             SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
             SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
             SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-            SDL_DrawGPUPrimitives(renderPass, 6, 1, 0, 0);
+            SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
             SDL_EndGPURenderPass(renderPass);
         }
 
