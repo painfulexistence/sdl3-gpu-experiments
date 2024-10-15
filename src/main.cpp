@@ -81,7 +81,7 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUComputePipeline* procTexturePipeline = CreateComputePipelineFromShader(
 	    device,
-	    "ProcTexture.comp",
+	    "Mandelbrot.comp",
         &compPipelineCreateInfo
     );
 

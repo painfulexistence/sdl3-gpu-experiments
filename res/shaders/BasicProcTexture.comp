@@ -6,15 +6,6 @@ layout(set = 2, binding = 0) uniform UBO {
     float time;
 };
 
-uint hash(uint x) {
-    x += (x << 10u);
-    x ^= (x >>  6u);
-    x += (x <<  3u);
-    x ^= (x >> 11u);
-    x += (x << 15u);
-    return x;
-}
-
 float random(vec2 st) {
     return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
 }

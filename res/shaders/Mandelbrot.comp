@@ -1,0 +1,51 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 1, binding = 0, rgba8) uniform writeonly image2D outImage;
+layout(set = 2, binding = 0) uniform UBO {
+    float time;
+};
+
+const float kAnimationFrequency = 0.01;
+const float kAnimationSpeed = 4.0;
+const float kAnimationScaleLow = 0.62;
+const float kAnimationScale = 0.38;
+const vec2 kMandelbrotPixelOffset = vec2(-0.2, -0.35);
+const vec2 kMandelbrotOrigin = vec2(-1.2, -0.32);
+const vec2 kMandelbrotScale = vec2(2.2, 2.0);
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outImage);
+
+    if (coord.x >= size.x || coord.y >= size.y) {
+        return;
+    }
+
+    // Map time to zoom value in [kAnimationScaleLow, 1]
+    float zoom = kAnimationScaleLow + kAnimationScale * cos(kAnimationFrequency * time);
+    // Speed up zooming
+    zoom = pow(zoom, kAnimationSpeed);
+
+    // Scale
+    float x0 = zoom * kMandelbrotScale.x * (float(coord.x) / float(size.x) + kMandelbrotPixelOffset.x) + kMandelbrotOrigin.x;
+    float y0 = zoom * kMandelbrotScale.y * (float(coord.y) / float(size.y) + kMandelbrotPixelOffset.y) + kMandelbrotOrigin.y;
+
+    // Implement Mandelbrot set
+    float x = 0.0;
+    float y = 0.0;
+    uint iteration = 0;
+    const uint max_iteration = 1000;
+    float xtmp = 0.0;
+
+    while (x * x + y * y <= 4.0 && iteration < max_iteration) {
+        xtmp = x * x - y * y + x0;
+        y = 2.0 * x * y + y0;
+        x = xtmp;
+        iteration += 1;
+    }
+
+    float color = 0.5 + 0.5 * cos(3.0 + float(iteration) * 0.15);
+
+    imageStore(outImage, coord, vec4(color, color, color, 1.0));
+}
