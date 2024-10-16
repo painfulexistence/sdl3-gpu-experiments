@@ -272,13 +272,9 @@ int main(int argc, char* args[]) {
 
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
 
-    // Render loop
-    // SDL_Renderer* renderer = SDL_CreateRenderer(window, NULL);
-    // SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-
-    std::unordered_map<SDL_Scancode, bool> keyboardState;
-
+    // Main loop
     bool quit = false;
+    std::unordered_map<SDL_Scancode, bool> keyboardState;
     while (!quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e) != 0) {
@@ -302,12 +298,16 @@ int main(int argc, char* args[]) {
                 break;
             }
         }
+
         if (keyboardState[SDL_SCANCODE_W]) {
             useWireframeMode = !useWireframeMode;
         }
-
-        // SDL_RenderClear(renderer);
-        // SDL_RenderPresent(renderer);
+        if (keyboardState[SDL_SCANCODE_V]) {
+            useSmallViewport = !useSmallViewport;
+        }
+        if (keyboardState[SDL_SCANCODE_S]) {
+            useScissorRect = !useScissorRect;
+        }
 
         SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
         if (cmd == NULL) {
@@ -346,8 +346,8 @@ int main(int argc, char* args[]) {
 
             SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, NULL);
             SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
-            // SDL_SetGPUViewport(renderPass, &SmallViewport);
-            // SDL_SetGPUScissor(renderPass, &ScissorRect);
+            if (useSmallViewport) SDL_SetGPUViewport(renderPass, &SmallViewport);
+            if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
             SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vertexBuffer, .offset = 0 };
             SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
             SDL_GPUBufferBinding indexBufferBinding = { .buffer = indexBuffer, .offset = 0 };
