@@ -1,29 +1,37 @@
+#include "fmt/core.h"
 #include "SDL3/SDL.h"
 #define SDL_GPU_SHADERCROSS_IMPLEMENTATION
 #include "SDL_gpu_shadercross.h"
+#include "glm/vec2.hpp"
+#include "glm/vec3.hpp"
+#include "glm/vec4.hpp"
+#include "glm/mat4x4.hpp"
+#include "glm/ext/matrix_clip_space.hpp"
+#include "glm/ext/matrix_transform.hpp"
+
 #include <unordered_map>
 #include <array>
 
 #include "helper.hpp"
 
-#include "fmt/core.h"
 
+bool useWireframeMode = false;
+bool useSmallViewport = false;
+bool useScissorRect = false;
 
-bool UseWireframeMode = false;
-bool UseSmallViewport = false;
-bool UseScissorRect = false;
-
-SDL_GPUViewport SmallViewport = { 160, 120, 320, 240, 0.1f, 1.0f };
-SDL_Rect ScissorRect = { 320, 240, 320, 240 };
+SDL_GPUViewport SmallViewport = { 150, 150, 200, 200, 0.1f, 1.0f };
+SDL_Rect ScissorRect = { 250, 250, 125, 125 };
 
 struct PositionTextureVertex {
     float x, y, z;
     float u, v;
 };
 std::array<PositionTextureVertex, 6> quad = {{
+    // bottom-right
     { -1, -1, 0, 0, 0 },
     {  1, -1, 0, 1, 0 },
 	{  1,  1, 0, 1, 1 },
+    // top-left
 	{ -1, -1, 0, 0, 0 },
 	{  1,  1, 0, 1, 1 },
 	{ -1,  1, 0, 0, 1 }
@@ -37,6 +45,48 @@ std::array<PositionTextureVertex, 6> quad = {{
 // 	{  1,  1, 0, 1, 1 },
 // 	{ -1,  1, 0, 0, 1 }
 // };
+std::array<PositionTextureVertex, 24> cube = {{
+    // left
+    { .5f, .5f, .5f, 1.0f, 1.0f },
+    { .5f, -.5f, .5f, 1.0f, 0.0f },
+    { -.5f, .5f, .5f, 0.0f, 1.0f },
+    { -.5f, -.5f, .5f, 0.0f, 0.0f },
+    // right
+    { .5f, .5f, -.5f, 1.0f, 1.0f },
+    { .5f, -.5f, -.5f, 1.0f, 0.0f },
+    { -.5f, .5f, -.5f, 0.0f, 1.0f },
+    { -.5f, -.5f, -.5f, 0.0f, 0.0f },
+    // back
+    { -.5f, .5f, .5f, 1.0f, 1.0f },
+    { -.5f, .5f, -.5f, 0.0f, 1.0f },
+    { -.5f, -.5f, .5f, 1.0f, 0.0f },
+    { -.5f, -.5f, -.5f, 0.0f, 0.0f },
+    // front
+    { .5f, .5f, .5f, 1.0f, 1.0f },
+    { .5f, .5f, -.5f, 0.0f, 1.0f },
+    { .5f, -.5f, .5f, 1.0f, 0.0f },
+    { .5f, -.5f, -.5f, 0.0f, 0.0f },
+    // top
+    { .5f, .5f, .5f, 1.0f, 1.0f },
+    { .5f, .5f, -.5f, 1.0f, 0.0f },
+    { -.5f, .5f, .5f, 0.0f, 1.0f },
+    { -.5f, .5f, -.5f, 0.0f, 0.0f },
+    // bottom
+    { .5f, -.5f, .5f, 1.0f, 1.0f },
+    { .5f, -.5f, -.5f, 1.0f, 0.0f },
+    { -.5f, -.5f, .5f, 0.0f, 1.0f },
+    { -.5f, -.5f, -.5f, 0.0f, 0.0f },
+}};
+std::array<Uint16, 36> cubeIndices = {{
+    0,  2,  1,  1,  2,  3,  4,  5,  6,  6,  5,  7,  8,  9,  10, 10, 9,  11,
+    12, 14, 13, 13, 14, 15, 16, 17, 18, 18, 17, 19, 20, 22, 21, 21, 22, 23
+}};
+
+struct Transform {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
 
 int windowWidth, windowHeight;
 
@@ -47,7 +97,7 @@ int main(int argc, char* args[]) {
     }
     SDL_GPUDevice* device = SDL_CreateGPUDevice(SDL_ShaderCross_GetSPIRVShaderFormats(), true, NULL);
 	if (device == NULL) {
-		SDL_Log("GPUCreateDevice failed");
+		SDL_Log("GPUCreateDevice failed: %s", SDL_GetError());
 		return -1;
 	}
     SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 500, 500, SDL_WINDOW_RESIZABLE);
@@ -59,13 +109,13 @@ int main(int argc, char* args[]) {
     SDL_GetWindowSizeInPixels(window, &windowWidth, &windowHeight);
 
     // Create shaders
-	SDL_GPUShader* vertexShader = LoadShader(device, "TexturedQuad.vert", 0, 0, 0, 0);
+	SDL_GPUShader* vertexShader = LoadShader(device, "TexturedCube.vert", 0, 1, 0, 0);
 	if (vertexShader == NULL) {
 		SDL_Log("Failed to create vertex shader!");
 		return -1;
 	}
 
-	SDL_GPUShader* fragmentShader = LoadShader(device, "TexturedQuad.frag", 1, 0, 0, 0);
+	SDL_GPUShader* fragmentShader = LoadShader(device, "TextureColor.frag", 1, 0, 0, 0);
 	if (fragmentShader == NULL) {
 		SDL_Log("Failed to create fragment shader!");
 		return -1;
@@ -111,6 +161,9 @@ int main(int argc, char* args[]) {
             .num_vertex_attributes = 2,
 		},
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = {
+            .cull_mode = SDL_GPU_CULLMODE_BACK,
+        },
         .target_info = {
 			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
 				.format = SDL_GetGPUSwapchainTextureFormat(device, window)
@@ -153,15 +206,21 @@ int main(int argc, char* args[]) {
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
     // Create buffers
-    SDL_GPUBufferCreateInfo bufferCreateInfo = {
+    SDL_GPUBufferCreateInfo vertexBufferCreateInfo = {
         .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
-        .size = sizeof(PositionTextureVertex) * quad.size()
+        .size = sizeof(PositionTextureVertex) * cube.size()
     };
-    SDL_GPUBuffer* vertexBuffer = SDL_CreateGPUBuffer(device, &bufferCreateInfo);
+    SDL_GPUBuffer* vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferCreateInfo);
+
+    SDL_GPUBufferCreateInfo indexBufferCreateInfo = {
+        .usage = SDL_GPU_BUFFERUSAGE_INDEX,
+        .size = sizeof(Uint16) * cubeIndices.size()
+    };
+    SDL_GPUBuffer* indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCreateInfo);
 
     SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = sizeof(PositionTextureVertex) * quad.size()
+        .size = sizeof(PositionTextureVertex) * cube.size() + sizeof(Uint16) * cubeIndices.size()
     };
     SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(
 		device,
@@ -175,7 +234,8 @@ int main(int argc, char* args[]) {
             false
         )
 	);
-    memcpy(transferData, quad.data(), sizeof(PositionTextureVertex) * quad.size());
+    memcpy(transferData, cube.data(), sizeof(PositionTextureVertex) * cube.size());
+    memcpy((Uint16*)&transferData[cube.size()], cubeIndices.data(), sizeof(Uint16) * cubeIndices.size());
 	SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
     // Upload data to GPU
@@ -189,8 +249,17 @@ int main(int argc, char* args[]) {
     SDL_GPUBufferRegion bufferRegion = {
         .buffer = vertexBuffer,
         .offset = 0,
-        .size = sizeof(PositionTextureVertex) * quad.size()
+        .size = sizeof(PositionTextureVertex) * cube.size()
     };
+	SDL_UploadToGPUBuffer(
+		copyPass,
+		&transferBufferLocation,
+		&bufferRegion,
+		false
+	);
+    transferBufferLocation.offset = sizeof(PositionTextureVertex) * cube.size();
+    bufferRegion.buffer = indexBuffer;
+    bufferRegion.size = sizeof(Uint16) * cubeIndices.size();
 	SDL_UploadToGPUBuffer(
 		copyPass,
 		&transferBufferLocation,
@@ -233,6 +302,9 @@ int main(int argc, char* args[]) {
                 break;
             }
         }
+        if (keyboardState[SDL_SCANCODE_W]) {
+            useWireframeMode = !useWireframeMode;
+        }
 
         // SDL_RenderClear(renderer);
         // SDL_RenderPresent(renderer);
@@ -273,14 +345,24 @@ int main(int argc, char* args[]) {
             colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
 
             SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, NULL);
-            SDL_BindGPUGraphicsPipeline(renderPass, UseWireframeMode ? linePipeline : fillPipeline);
+            SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
             // SDL_SetGPUViewport(renderPass, &SmallViewport);
             // SDL_SetGPUScissor(renderPass, &ScissorRect);
             SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vertexBuffer, .offset = 0 };
             SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+            SDL_GPUBufferBinding indexBufferBinding = { .buffer = indexBuffer, .offset = 0 };
+            SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
             SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
             SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-            SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
+            float angle = time * 0.5f;
+            Transform xform;
+            xform.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
+            glm::vec3  camPos = glm::vec3(0.0f, 0.0f, 3.0f);
+            xform.proj = glm::perspective(45.f * (float)M_PI / 180.f, windowWidth / (float)windowHeight, 0.03f, 500.0f);
+            xform.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+            SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
+            // SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
+            SDL_DrawGPUIndexedPrimitives(renderPass, cubeIndices.size(), 1, 0, 0, 0);
             SDL_EndGPURenderPass(renderPass);
         }
 
@@ -294,6 +376,7 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUTexture(device, procTexture);
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_ReleaseGPUBuffer(device, vertexBuffer);
+    SDL_ReleaseGPUBuffer(device, indexBuffer);
 
     // Release window and GPU device
     SDL_ReleaseWindowFromGPUDevice(device, window);

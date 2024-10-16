@@ -18,6 +18,7 @@ FetchContent_Declare(SDL3
 FetchContent_MakeAvailable(SDL3)
 find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
 find_program(GLSL_VALIDATOR "glslangValidator" REQUIRED)
 
