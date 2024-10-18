@@ -9,6 +9,7 @@
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
 
+#include <cmath>
 #include <unordered_map>
 #include <array>
 
@@ -188,18 +189,22 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUShader(device, fragmentShader);
 
     // Create textures & samplers
-    SDL_GPUTextureCreateInfo textureCreateInfo = {
+    int procTextureSize = 1024;
+    SDL_GPUTextureCreateInfo procTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-        .usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER,
-        .width = static_cast<uint32_t>(windowWidth),
-        .height = static_cast<uint32_t>(windowHeight),
+        .usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+        .width = static_cast<uint32_t>(procTextureSize),
+        .height = static_cast<uint32_t>(procTextureSize),
         .layer_count_or_depth = 1,
-        .num_levels = 1,
+        .num_levels = static_cast <Uint32>(std::floor(std::log(procTextureSize))),
     };
-    SDL_GPUTexture* procTexture = SDL_CreateGPUTexture(device, &textureCreateInfo);
+    SDL_GPUTexture* procTexture = SDL_CreateGPUTexture(device, &procTextureCreateInfo);
 
     SDL_GPUSamplerCreateInfo samplerCreateInfo = {
+        .min_filter = SDL_GPU_FILTER_LINEAR,
+        .mag_filter = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
         .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT
     };
@@ -328,8 +333,10 @@ int main(int argc, char* args[]) {
         SDL_BindGPUComputePipeline(computePass, procTexturePipeline);
         float time = SDL_GetTicks() / 1000.0;
         SDL_PushGPUComputeUniformData(cmd, 0, &time, sizeof(float));
-        SDL_DispatchGPUCompute(computePass, ceil(windowWidth / 16.0), ceil(windowHeight / 16.0), 1);
+        SDL_DispatchGPUCompute(computePass, ceil(procTextureSize / 16.0), ceil(procTextureSize / 16.0), 1);
         SDL_EndGPUComputePass(computePass);
+
+        SDL_GenerateMipmapsForGPUTexture(cmd, procTexture);
 
         // 2. screen pass
         SDL_GPUTexture* swapchainTexture;
