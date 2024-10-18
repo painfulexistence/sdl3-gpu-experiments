@@ -137,6 +137,12 @@ int main(int argc, char* args[]) {
     );
 
     // Create gfx pipelines
+    SDL_GPUTextureFormat renderTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
+    SDL_GPUSampleCount msaaSampleCount = SDL_GPU_SAMPLECOUNT_4;
+    if (!SDL_GPUTextureSupportsSampleCount(device, renderTargetFormat, msaaSampleCount)) {
+		SDL_Log("Sample count %d is not supported", (1 << static_cast<int>(msaaSampleCount)));
+        msaaSampleCount = SDL_GPU_SAMPLECOUNT_4;
+	}
 	SDL_GPUGraphicsPipelineCreateInfo gfxPipelineCreateInfo = {
         .vertex_shader = vertexShader,
 		.fragment_shader = fragmentShader,
@@ -165,9 +171,12 @@ int main(int argc, char* args[]) {
         .rasterizer_state = {
             .cull_mode = SDL_GPU_CULLMODE_BACK,
         },
+        .multisample_state = {
+            .sample_count = msaaSampleCount
+        },
         .target_info = {
 			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
-				.format = SDL_GetGPUSwapchainTextureFormat(device, window)
+				.format = renderTargetFormat
 			}},
             .num_color_targets = 1,
 		},
@@ -209,6 +218,29 @@ int main(int argc, char* args[]) {
         .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT
     };
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
+
+    SDL_GPUTextureCreateInfo msaaTextureCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = renderTargetFormat,
+        .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+        .width = static_cast<uint32_t>(windowWidth),
+        .height = static_cast<uint32_t>(windowHeight),
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+        .sample_count = msaaSampleCount,
+    };
+    SDL_GPUTexture* msaaTexture = SDL_CreateGPUTexture(device, &msaaTextureCreateInfo);
+
+    SDL_GPUTextureCreateInfo resolveTextureCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = renderTargetFormat,
+        .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        .width = static_cast<uint32_t>(windowWidth),
+        .height = static_cast<uint32_t>(windowHeight),
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+    };
+    SDL_GPUTexture* resolveTexture = SDL_CreateGPUTexture(device, &resolveTextureCreateInfo);
 
     // Create buffers
     SDL_GPUBufferCreateInfo vertexBufferCreateInfo = {
@@ -346,10 +378,11 @@ int main(int argc, char* args[]) {
         }
         if (swapchainTexture != NULL) {
             SDL_GPUColorTargetInfo colorTargetInfo = { 0 };
-            colorTargetInfo.texture = swapchainTexture;
+            colorTargetInfo.texture = msaaTexture;
             colorTargetInfo.clear_color = (SDL_FColor){ 0.0f, 0.0f, 0.0f, 1.0f };
             colorTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
-            colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
+            colorTargetInfo.store_op = SDL_GPU_STOREOP_RESOLVE;
+            colorTargetInfo.resolve_texture = resolveTexture;
 
             SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, NULL);
             SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
@@ -371,6 +404,18 @@ int main(int argc, char* args[]) {
             // SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
             SDL_DrawGPUIndexedPrimitives(renderPass, cubeIndices.size(), 1, 0, 0, 0);
             SDL_EndGPURenderPass(renderPass);
+
+            SDL_GPUBlitInfo blitInfo = {
+				.source.texture = resolveTexture,
+				.source.w = static_cast<Uint32>(windowWidth),
+				.source.h = static_cast<Uint32>(windowHeight),
+				.destination.texture = swapchainTexture,
+				.destination.w = static_cast<Uint32>(windowWidth),
+				.destination.h = static_cast<Uint32>(windowHeight),
+				.load_op = SDL_GPU_LOADOP_DONT_CARE,
+				.filter = SDL_GPU_FILTER_LINEAR
+			};
+            SDL_BlitGPUTexture(cmd, &blitInfo);
         }
 
         SDL_SubmitGPUCommandBuffer(cmd);
@@ -382,6 +427,8 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUGraphicsPipeline(device, linePipeline);
     SDL_ReleaseGPUTexture(device, procTexture);
     SDL_ReleaseGPUSampler(device, sampler);
+    SDL_ReleaseGPUTexture(device, msaaTexture);
+    SDL_ReleaseGPUTexture(device, resolveTexture);
     SDL_ReleaseGPUBuffer(device, vertexBuffer);
     SDL_ReleaseGPUBuffer(device, indexBuffer);
 
