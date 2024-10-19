@@ -206,7 +206,7 @@ int main(int argc, char* args[]) {
         .width = static_cast<uint32_t>(procTextureSize),
         .height = static_cast<uint32_t>(procTextureSize),
         .layer_count_or_depth = 1,
-        .num_levels = static_cast <Uint32>(std::floor(std::log(procTextureSize))),
+        .num_levels = static_cast<Uint32>(std::floor(std::log2(procTextureSize))),
     };
     SDL_GPUTexture* procTexture = SDL_CreateGPUTexture(device, &procTextureCreateInfo);
 
