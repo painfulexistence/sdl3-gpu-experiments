@@ -16,7 +16,6 @@ FetchContent_Declare(SDL3
     GIT_PROGRESS TRUE)
 FetchContent_MakeAvailable(SDL3)
 find_package(fmt CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 
 find_program(GLSL_VALIDATOR "glslangValidator" REQUIRED)
@@ -29,7 +28,7 @@ set(SOURCES
 add_executable(main ${SOURCES})
 target_compile_features(main PRIVATE cxx_std_20)
 set_target_properties(main PROPERTIES CXX_EXTENSIONS OFF)
-target_link_libraries(main PRIVATE fmt::fmt spdlog::spdlog SDL3::SDL3)
+target_link_libraries(main PRIVATE fmt::fmt SDL3::SDL3)
 
 file(GLOB_RECURSE SHADER_SOURCES CONFIGURE_DEPENDS
 	${CMAKE_CURRENT_SOURCE_DIR}/res/shaders/*.vert
