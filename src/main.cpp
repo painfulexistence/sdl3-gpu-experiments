@@ -372,8 +372,8 @@ int main(int argc, char* args[]) {
 
         // 2. screen pass
         SDL_GPUTexture* swapchainTexture;
-        if (!SDL_AcquireGPUSwapchainTexture(cmd, window, &swapchainTexture, NULL, NULL)) {
-            SDL_Log("AcquireGPUSwapchainTexture failed: %s", SDL_GetError());
+        if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapchainTexture, NULL, NULL)) {
+            SDL_Log("WaitAndAcquireGPUSwapchainTexture failed: %s", SDL_GetError());
             return -1;
         }
         if (swapchainTexture != NULL) {
