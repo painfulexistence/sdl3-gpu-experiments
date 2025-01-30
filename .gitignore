@@ -3,6 +3,6 @@ build
 .cache/
 
 .vs/
-.vscode/
+.vscode/settings.json
 
 *.spv

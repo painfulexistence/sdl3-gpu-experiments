@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+      {
+          "name": "Debug SDL3 App (launch)",
+          "type": "cppdbg",
+          "osx": {
+            "MIMode": "lldb"
+          },
+          "request": "launch",
+          "program": "${workspaceFolder}/build/Debug/main",
+          "cwd": "${workspaceFolder}/build/Debug",
+          "args": [],
+          "stopAtEntry": false
+      },
+      {
+        "name": "Debug SDL3 App (attach)",
+        "type": "cppdbg",
+        "osx": {
+          "MIMode": "lldb"
+        },
+        "request": "attach",
+        "program": "${workspaceFolder}/build/Debug/main",
+    }
+  ]
+}
