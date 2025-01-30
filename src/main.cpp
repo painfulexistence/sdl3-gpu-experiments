@@ -101,7 +101,7 @@ int main(int argc, char* args[]) {
 		SDL_Log("GPUCreateDevice failed: %s", SDL_GetError());
 		return -1;
 	}
-    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 500, 500, SDL_WINDOW_RESIZABLE);
+    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 1000, 1000, SDL_WINDOW_RESIZABLE);
 	if (!SDL_ClaimWindowForGPUDevice(device, window)) {
 		fmt::print("GPUClaimWindow failed");
 		return -1;
@@ -224,9 +224,13 @@ int main(int argc, char* args[]) {
     SDL_GPUSamplerCreateInfo samplerCreateInfo = {
         .min_filter = SDL_GPU_FILTER_LINEAR,
         .mag_filter = SDL_GPU_FILTER_LINEAR,
-        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
-        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
-        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT,
+        .max_anisotropy = 4,
+        .min_lod = 0.0f,
+        .max_lod = 200.0f,
+        .enable_anisotropy = true,
     };
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
@@ -408,6 +412,7 @@ int main(int argc, char* args[]) {
             cmd,
             (SDL_GPUStorageTextureReadWriteBinding[]){{
                 .texture = procTexture,
+                .mip_level = 0,
             }},
             1,
             NULL,
