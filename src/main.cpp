@@ -198,6 +198,17 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUShader(device, fragmentShader);
 
     // Create textures & samplers
+    SDL_GPUTextureCreateInfo imgTextureCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+        .width = 1024,
+        .height = 1024,
+        .layer_count_or_depth = 1,
+        .num_levels = 10,
+    };
+    SDL_GPUTexture* imgTexture = SDL_CreateGPUTexture(device, &imgTextureCreateInfo);
+
     int procTextureSize = 1024;
     SDL_GPUTextureCreateInfo procTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
@@ -255,59 +266,99 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUBuffer* indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCreateInfo);
 
-    SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {
+    SDL_GPUTransferBufferCreateInfo bufTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size = sizeof(PositionTextureVertex) * cube.size() + sizeof(Uint16) * cubeIndices.size()
     };
-    SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(
+    SDL_GPUTransferBuffer* bufTransferBuffer = SDL_CreateGPUTransferBuffer(
 		device,
-        &transferBufferCreateInfo
+        &bufTransferBufferCreateInfo
 	);
 
-	PositionTextureVertex* transferData = reinterpret_cast<PositionTextureVertex*>(
+	PositionTextureVertex* bufTransferData = reinterpret_cast<PositionTextureVertex*>(
         SDL_MapGPUTransferBuffer(
             device,
-            transferBuffer,
+            bufTransferBuffer,
             false
         )
 	);
-    memcpy(transferData, cube.data(), sizeof(PositionTextureVertex) * cube.size());
-    memcpy((Uint16*)&transferData[cube.size()], cubeIndices.data(), sizeof(Uint16) * cubeIndices.size());
-	SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+    memcpy(bufTransferData, cube.data(), sizeof(PositionTextureVertex) * cube.size());
+    memcpy((Uint16*)&bufTransferData[cube.size()], cubeIndices.data(), sizeof(Uint16) * cubeIndices.size());
+	SDL_UnmapGPUTransferBuffer(device, bufTransferBuffer);
+
+    SDL_Surface* img = LoadImage("res/textures/rick_roll.png");
+
+    SDL_GPUTransferBufferCreateInfo texTransferBufferCreateInfo = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = static_cast<Uint32>(img->w * img->h * 4)
+    };
+    SDL_GPUTransferBuffer* texTransferBuffer = SDL_CreateGPUTransferBuffer(
+		device,
+        &texTransferBufferCreateInfo
+	);
+
+	SDL_Surface* texTransferData = reinterpret_cast<SDL_Surface*>(
+        SDL_MapGPUTransferBuffer(
+            device,
+            texTransferBuffer,
+            false
+        )
+	);
+    memcpy(texTransferData, img->pixels, img->w * img->h * 4);
+	SDL_UnmapGPUTransferBuffer(device, texTransferBuffer);
 
     // Upload data to GPU
 	SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
 
 	SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmd);
-    SDL_GPUTransferBufferLocation transferBufferLocation = {
-        .transfer_buffer = transferBuffer,
+    SDL_GPUTransferBufferLocation bufTransferInfo = {
+        .transfer_buffer = bufTransferBuffer,
         .offset = 0
     };
-    SDL_GPUBufferRegion bufferRegion = {
+    SDL_GPUBufferRegion bufTransferRegion = {
         .buffer = vertexBuffer,
         .offset = 0,
         .size = sizeof(PositionTextureVertex) * cube.size()
     };
 	SDL_UploadToGPUBuffer(
 		copyPass,
-		&transferBufferLocation,
-		&bufferRegion,
+		&bufTransferInfo,
+		&bufTransferRegion,
 		false
 	);
-    transferBufferLocation.offset = sizeof(PositionTextureVertex) * cube.size();
-    bufferRegion.buffer = indexBuffer;
-    bufferRegion.size = sizeof(Uint16) * cubeIndices.size();
+    bufTransferInfo.offset = sizeof(PositionTextureVertex) * cube.size();
+    bufTransferRegion.buffer = indexBuffer;
+    bufTransferRegion.size = sizeof(Uint16) * cubeIndices.size();
 	SDL_UploadToGPUBuffer(
 		copyPass,
-		&transferBufferLocation,
-		&bufferRegion,
+		&bufTransferInfo,
+		&bufTransferRegion,
+		false
+	);
+    SDL_GPUTextureTransferInfo texTransferInfo = {
+        .transfer_buffer = texTransferBuffer,
+        .offset = 0
+    };
+    SDL_GPUTextureRegion texTransferRegion = {
+        .texture = imgTexture,
+        .layer = 0,
+        .w = static_cast<Uint32>(img->w),
+        .h = static_cast<Uint32>(img->h),
+        .d = 1
+    };
+	SDL_UploadToGPUTexture(
+		copyPass,
+		&texTransferInfo,
+		&texTransferRegion,
 		false
 	);
 	SDL_EndGPUCopyPass(copyPass);
 
     SDL_SubmitGPUCommandBuffer(cmd);
 
-    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, bufTransferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, texTransferBuffer);
+    SDL_DestroySurface(img);
 
     // Main loop
     bool quit = false;
@@ -425,6 +476,7 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, fillPipeline);
 	SDL_ReleaseGPUGraphicsPipeline(device, linePipeline);
+    SDL_ReleaseGPUTexture(device, imgTexture);
     SDL_ReleaseGPUTexture(device, procTexture);
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_ReleaseGPUTexture(device, msaaTexture);

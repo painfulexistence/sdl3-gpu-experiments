@@ -1,6 +1,9 @@
 #include "helper.hpp"
 
 #include "SDL_gpu_shadercross.h"
+#define STBI_NO_SIMD
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 SDL_GPUComputePipeline* CreateComputePipelineFromShader(
     SDL_GPUDevice* device,
@@ -84,4 +87,30 @@ SDL_GPUShader* LoadShader(
 
 	SDL_free(code);
 	return shader;
+}
+
+SDL_Surface* LoadImage(const char* filename) {
+    int width, height, numChannels;
+    if (!stbi_info(filename, &width, &height, &numChannels)) {
+        SDL_Log("Failed to load image at %s!\n", filename);
+        return nullptr;
+    }
+    SDL_PixelFormat desiredFormat;
+    switch (numChannels) {
+    case 3:
+    case 4:
+        desiredFormat = SDL_PixelFormat::SDL_PIXELFORMAT_RGBA32;
+        break;
+    default:
+        SDL_Log("Unknown texture format at %s\n", filename);
+        return nullptr;
+    }
+    uint8_t* data = stbi_load(filename, &width, &height, &numChannels, 4);
+    if (data) {
+        auto image = SDL_CreateSurfaceFrom(width, height, desiredFormat, data, width * 32);
+        stbi_image_free(data);
+        return image;
+    } else {
+        return nullptr;
+    }
 }

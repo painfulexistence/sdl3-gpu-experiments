@@ -15,3 +15,5 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
     const char* filename,
     SDL_GPUComputePipelineCreateInfo* createInfo
 );
+
+SDL_Surface* LoadImage(const char* filename);
