@@ -358,6 +358,8 @@ int main(int argc, char* args[]) {
 	);
 	SDL_EndGPUCopyPass(copyPass);
 
+    SDL_GenerateMipmapsForGPUTexture(cmd, imgTexture);
+
     SDL_SubmitGPUCommandBuffer(cmd);
 
     SDL_ReleaseGPUTransferBuffer(device, bufTransferBuffer);
