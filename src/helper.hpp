@@ -1,5 +1,6 @@
 #pragma once
 #include <SDL3/SDL.h>
+#include "scene.hpp"
 
 SDL_GPUShader* LoadShader(
 	SDL_GPUDevice* device,
@@ -17,3 +18,8 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
 );
 
 SDL_Surface* LoadImage(const char* filename);
+
+Scene* LoadGLTF(
+    SDL_GPUDevice* device,
+    const char* filename
+);
