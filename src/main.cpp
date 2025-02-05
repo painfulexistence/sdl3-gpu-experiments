@@ -12,6 +12,7 @@
 #include <cmath>
 #include <unordered_map>
 #include <array>
+#include <functional>
 
 #include "helper.hpp"
 
@@ -143,29 +144,36 @@ int main(int argc, char* args[]) {
 		SDL_Log("Sample count %d is not supported", (1 << static_cast<int>(msaaSampleCount)));
         msaaSampleCount = SDL_GPU_SAMPLECOUNT_4;
 	}
+    std::array<SDL_GPUVertexBufferDescription, 1> vertexBufferDescs = {{
+        {
+            .slot = 0,
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0,
+            .pitch = sizeof(PositionTextureVertex)
+        }
+    }};
+    std::array<SDL_GPUVertexAttribute, 2> vertexAttributes = {{
+        {
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .location = 0,
+            .offset = 0
+        },
+        {
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+            .location = 1,
+            .offset = sizeof(float) * 3
+        }
+    }};
 	SDL_GPUGraphicsPipelineCreateInfo gfxPipelineCreateInfo = {
         .vertex_shader = vertexShader,
 		.fragment_shader = fragmentShader,
         .vertex_input_state = (SDL_GPUVertexInputState){
-			.vertex_buffer_descriptions = (SDL_GPUVertexBufferDescription[]){{
-				.slot = 0,
-				.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-				.instance_step_rate = 0,
-				.pitch = sizeof(PositionTextureVertex)
-			}},
-            .num_vertex_buffers = 1,
-			.vertex_attributes = (SDL_GPUVertexAttribute[]){{
-				.buffer_slot = 0,
-				.format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-				.location = 0,
-				.offset = 0
-			}, {
-				.buffer_slot = 0,
-				.format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-				.location = 1,
-				.offset = sizeof(float) * 3
-			}},
-            .num_vertex_attributes = 2,
+			.vertex_buffer_descriptions = vertexBufferDescs.data(),
+            .num_vertex_buffers = static_cast<Uint32>(vertexBufferDescs.size()),
+			.vertex_attributes = vertexAttributes.data(),
+            .num_vertex_attributes = static_cast<Uint32>(vertexAttributes.size()),
 		},
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
@@ -198,14 +206,15 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUShader(device, fragmentShader);
 
     // Create textures & samplers
+    SDL_Surface* img = LoadImage("res/textures/rick_roll.png");
     SDL_GPUTextureCreateInfo imgTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
         .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
-        .width = 1024,
-        .height = 1024,
+        .width = static_cast<Uint32>(img->w),
+        .height = static_cast<Uint32>(img->h),
         .layer_count_or_depth = 1,
-        .num_levels = 10,
+        .num_levels = std::max(1u, static_cast<Uint32>(std::floor(std::log2(std::min(img->w, img->h))))),
     };
     SDL_GPUTexture* imgTexture = SDL_CreateGPUTexture(device, &imgTextureCreateInfo);
 
@@ -234,6 +243,7 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
+    Scene* sponzaScene = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
     SDL_GPUTextureCreateInfo msaaTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = renderTargetFormat,
@@ -289,8 +299,6 @@ int main(int argc, char* args[]) {
     memcpy(bufTransferData, cube.data(), sizeof(PositionTextureVertex) * cube.size());
     memcpy((Uint16*)&bufTransferData[cube.size()], cubeIndices.data(), sizeof(Uint16) * cubeIndices.size());
 	SDL_UnmapGPUTransferBuffer(device, bufTransferBuffer);
-
-    SDL_Surface* img = LoadImage("res/textures/rick_roll.png");
 
     SDL_GPUTransferBufferCreateInfo texTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -443,24 +451,70 @@ int main(int argc, char* args[]) {
             colorTargetInfo.resolve_texture = resolveTexture;
 
             SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, NULL);
-            SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
-            if (useSmallViewport) SDL_SetGPUViewport(renderPass, &SmallViewport);
-            if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
-            SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vertexBuffer, .offset = 0 };
-            SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
-            SDL_GPUBufferBinding indexBufferBinding = { .buffer = indexBuffer, .offset = 0 };
-            SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-            SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
-            SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-            float angle = time * 0.5f;
-            Transform xform;
-            xform.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
-            glm::vec3  camPos = glm::vec3(0.0f, 0.0f, 3.0f);
-            xform.proj = glm::perspective(45.f * (float)M_PI / 180.f, windowWidth / (float)windowHeight, 0.03f, 500.0f);
-            xform.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-            SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
-            // SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
-            SDL_DrawGPUIndexedPrimitives(renderPass, cubeIndices.size(), 1, 0, 0, 0);
+            {
+                // Draw cube
+                SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
+                if (useSmallViewport) SDL_SetGPUViewport(renderPass, &SmallViewport);
+                if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
+                SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vertexBuffer, .offset = 0 };
+                SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+                SDL_GPUBufferBinding indexBufferBinding = { .buffer = indexBuffer, .offset = 0 };
+                SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+                SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
+                SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
+                float angle = time * 0.5f;
+                Transform xform;
+                xform.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
+                glm::vec3  camPos = glm::vec3(0.0f, 0.0f, 3.0f);
+                xform.proj = glm::perspective(45.f * (float)M_PI / 180.f, windowWidth / (float)windowHeight, 0.03f, 500.0f);
+                xform.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+                SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
+                // SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
+                SDL_DrawGPUIndexedPrimitives(renderPass, cubeIndices.size(), 1, 0, 0, 0);
+
+                // Draw Sponza
+                std::function<void(const std::shared_ptr<Node>&, const glm::mat4&)> drawNode =
+                    [&](const std::shared_ptr<Node>& node, const glm::mat4& parentMatrix) {
+                        if (!node) return;
+                        glm::mat4 localToWorldMatrix = parentMatrix * node->localTransform;
+
+                        if (node->mesh) {
+                            for (const auto& subMesh : node->mesh->subMeshes) {
+                                if (subMesh->material) {
+                                    const auto& material = subMesh->material;
+                                    if (material->pipeline == nullptr) {
+                                        continue;
+                                    }
+                                    SDL_BindGPUGraphicsPipeline(renderPass, material->pipeline.get());
+                                    for (const auto& vbo : subMesh->vbos) {
+                                        SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vbo.get(), .offset = 0 };
+                                        SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+                                    }
+                                    if (subMesh->material->albedoMap) {
+                                        SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = subMesh->material->albedoMap.get(), .sampler = sampler };
+                                        SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
+                                    }
+                                } else {
+                                    // TODO: use default material
+                                    continue;
+                                }
+                                if (subMesh->ebo) {
+                                    SDL_GPUBufferBinding indexBufferBinding = { .buffer = subMesh->ebo.get(), .offset = 0 };
+                                    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+                                    SDL_DrawGPUIndexedPrimitives(renderPass, subMesh->indexCount, 1, 0, 0, 0);
+                                } else {
+                                    SDL_DrawGPUPrimitives(renderPass, subMesh->vertexCount, 1, 0, 0);
+                                }
+                            }
+                        }
+                        for (const auto& child : node->children) {
+                            drawNode(child, localToWorldMatrix);
+                        }
+                    };
+                for (const auto& node : sponzaScene->nodes) {
+                    drawNode(node, glm::mat4(1.0f));
+                }
+            }
             SDL_EndGPURenderPass(renderPass);
 
             SDL_GPUBlitInfo blitInfo = {
@@ -478,6 +532,8 @@ int main(int argc, char* args[]) {
 
         SDL_SubmitGPUCommandBuffer(cmd);
     }
+
+    delete sponzaScene;
 
     // Release GPU resources
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
