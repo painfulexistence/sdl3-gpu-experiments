@@ -18,6 +18,7 @@
 #define TINYGLTF_IMPLEMENTATION
 #include "tiny_gltf.h"
 
+std::map<SDL_GPUGraphicsPipeline*, std::shared_ptr<Material>> pipelineCache;
 
 SDL_GPUComputePipeline* CreateComputePipelineFromShader(
     SDL_GPUDevice* device,
@@ -30,9 +31,9 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
 
 	size_t codeSize;
 	void* code = SDL_LoadFile(fullPath, &codeSize);
-	if (code == NULL) {
+	if (code == nullptr) {
 		SDL_Log("Failed to load compute shader from disk! %s", fullPath);
-		return NULL;
+		return nullptr;
 	}
 
 	SDL_GPUComputePipelineCreateInfo newCreateInfo = *createInfo;
@@ -42,10 +43,10 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
 	newCreateInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
 
 	SDL_GPUComputePipeline* pipeline = SDL_ShaderCross_CompileComputePipelineFromSPIRV(device, &newCreateInfo);
-	if (pipeline == NULL) {
+	if (pipeline == nullptr) {
 		SDL_Log("Failed to create compute pipeline!");
 		SDL_free(code);
-		return NULL;
+		return nullptr;
 	}
 
 	SDL_free(code);
@@ -67,7 +68,7 @@ SDL_GPUShader* LoadShader(
 		stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
 	} else {
 		SDL_Log("Invalid shader stage!");
-		return NULL;
+		return nullptr;
 	}
 
     const char* basePath = SDL_GetBasePath();
@@ -76,9 +77,9 @@ SDL_GPUShader* LoadShader(
 
 	size_t codeSize;
 	void* code = SDL_LoadFile(fullPath, &codeSize);
-	if (code == NULL) {
+	if (code == nullptr) {
 		SDL_Log("Failed to load shader from disk! %s", fullPath);
-		return NULL;
+		return nullptr;
 	}
 
 	SDL_GPUShaderCreateInfo shaderInfo = {
@@ -93,17 +94,17 @@ SDL_GPUShader* LoadShader(
         .num_uniform_buffers = uniformBufferCount,
 	};
 	SDL_GPUShader* shader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &shaderInfo);
-	if (shader == NULL) {
+	if (shader == nullptr) {
 		SDL_Log("Failed to create shader!");
 		SDL_free(code);
-		return NULL;
+		return nullptr;
 	}
 
 	SDL_free(code);
 	return shader;
 }
 
-SDL_Surface* LoadImage(const char* filename) {
+std::shared_ptr<SDL_Surface> LoadImage(const char* filename) {
     int width, height, numChannels;
     if (!stbi_info(filename, &width, &height, &numChannels)) {
         SDL_Log("Failed to load image at %s!\n", filename);
@@ -123,13 +124,15 @@ SDL_Surface* LoadImage(const char* filename) {
     if (data) {
         auto image = SDL_CreateSurfaceFrom(width, height, desiredFormat, data, width * 32);
         stbi_image_free(data);
-        return image;
+        return std::shared_ptr<SDL_Surface>(
+            image, [](SDL_Surface* surf) { SDL_DestroySurface(surf); }
+        );
     } else {
         return nullptr;
     }
 }
 
-Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
+std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
@@ -152,7 +155,7 @@ Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
         return nullptr;
     }
 
-    Scene* scene = new Scene();
+    std::shared_ptr<Scene> scene = std::make_shared<Scene>();
 
     const auto GetLocalMatrix = [](const tinygltf::Node &node) -> glm::mat4{
         if (!node.matrix.empty()) {
@@ -177,37 +180,113 @@ Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
             : glm::scale(TR, glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
     };
 
-    const auto GetBufferSize = [](const tinygltf::Accessor& accessor) -> size_t {
-        size_t bufferSize = accessor.count;
+    const auto GetBufferElementSize = [](const tinygltf::Accessor& accessor) -> size_t {
+        size_t elmSize = 0;
         switch (accessor.componentType) {
             case TINYGLTF_COMPONENT_TYPE_BYTE:
             case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-                bufferSize *= 1;
+                elmSize = 1;
                 break;
             case TINYGLTF_COMPONENT_TYPE_SHORT:
             case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-                bufferSize *= 2;
+                elmSize = 2;
                 break;
             case TINYGLTF_COMPONENT_TYPE_INT:
             case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
             case TINYGLTF_COMPONENT_TYPE_FLOAT:
-                bufferSize *= 4;
+                elmSize = 4;
                 break;
             default:
                 SDL_Log("Unknown component type");
                 break;
         }
         switch (accessor.type) {
-            case TINYGLTF_TYPE_SCALAR: return bufferSize;
-            case TINYGLTF_TYPE_VEC2: return bufferSize * 2;
-            case TINYGLTF_TYPE_VEC3: return bufferSize * 3;
-            case TINYGLTF_TYPE_VEC4: return bufferSize * 4;
-            case TINYGLTF_TYPE_MAT2: return bufferSize * 4;
-            case TINYGLTF_TYPE_MAT3: return bufferSize * 9;
-            case TINYGLTF_TYPE_MAT4: return bufferSize * 16;
+            case TINYGLTF_TYPE_SCALAR: return elmSize;
+            case TINYGLTF_TYPE_VEC2: return elmSize * 2;
+            case TINYGLTF_TYPE_VEC3: return elmSize * 3;
+            case TINYGLTF_TYPE_VEC4: return elmSize * 4;
+            case TINYGLTF_TYPE_MAT2: return elmSize * 4;
+            case TINYGLTF_TYPE_MAT3: return elmSize * 9;
+            case TINYGLTF_TYPE_MAT4: return elmSize * 16;
             default:
                 SDL_Log("Unknown type");
                 return 0;
+        }
+    };
+
+    const auto GetBufferElementFormat = [](const tinygltf::Accessor& accessor) -> SDL_GPUVertexElementFormat {
+        switch (accessor.componentType) {
+            case TINYGLTF_COMPONENT_TYPE_INT:
+                if (accessor.type == TINYGLTF_TYPE_SCALAR) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INT;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INT2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC3) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INT3;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INT4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+                if (accessor.type == TINYGLTF_TYPE_SCALAR) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_UINT;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_UINT2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC3) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_UINT3;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_UINT4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            case TINYGLTF_COMPONENT_TYPE_FLOAT:
+                if (accessor.type == TINYGLTF_TYPE_SCALAR) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_FLOAT;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC3) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+                if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_UBYTE2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            case TINYGLTF_COMPONENT_TYPE_BYTE:
+                if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_BYTE2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_BYTE4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            case TINYGLTF_COMPONENT_TYPE_SHORT:
+                if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_SHORT2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_SHORT4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+                if (accessor.type == TINYGLTF_TYPE_VEC2) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_USHORT2;
+                } else if (accessor.type == TINYGLTF_TYPE_VEC4) {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_USHORT4;
+                } else {
+                    return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
+                }
+            default:
+                SDL_Log("Unknown component type");
+                return SDL_GPU_VERTEXELEMENTFORMAT_INVALID;
         }
     };
 
@@ -337,9 +416,12 @@ Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
         auto mesh = std::make_shared<Mesh>();
         mesh->name = srcMesh.name;
 
-        for (const auto& primitive : srcMesh.primitives) {
+        for (const auto& primitive : srcMesh.primitives) {;
+            bool invalid = false;
             auto subMesh = std::make_unique<SubMesh>();
-            // TODO: set subMesh->mode
+            std::vector<SDL_GPUVertexBufferDescription> vertexBufferDescs;
+            std::vector<SDL_GPUVertexAttribute> vertexAttributes;
+            Uint32 attrLocation = 0;
             const std::array<std::string, 3> attributeNames = { "POSITION", "NORMAL", "TEXCOORD_0" };
             for (const auto& attr : attributeNames) {
                 auto it = primitive.attributes.find(attr);
@@ -347,20 +429,40 @@ Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
                     const auto& accessor = model.accessors[it->second];
                     const auto& bufferView = model.bufferViews[accessor.bufferView];
                     const auto& buffer = model.buffers[bufferView.buffer];
-                    const auto bufferSize = GetBufferSize(accessor);
+                    const auto elmSize = GetBufferElementSize(accessor);
+                    const auto elmFormat = GetBufferElementFormat(accessor);
+                    if (elmFormat <= SDL_GPU_VERTEXELEMENTFORMAT_INVALID) {
+                        SDL_Log("Invalid element format for attribute %s", attr.c_str());
+                        invalid = true;
+                        break;
+                    }
+                    const auto bufferSize = accessor.count * elmSize;
+                    // TODO: check if the buffer is already created, if so, just reuse it and uodate specified bytes
+                    // Currently, a new buffer is created for each attribute
                     auto vbo = CreateAndUploadBuffer(
                         buffer.data.data() + bufferView.byteOffset + accessor.byteOffset,
                         bufferSize
                     );
+                    vertexBufferDescs.push_back(SDL_GPUVertexBufferDescription {
+                        .slot = static_cast<Uint32>(subMesh->vbos.size()),
+                        .pitch = static_cast<Uint32>(bufferSize),
+                        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+                        .instance_step_rate = 0,
+                    });
+                    vertexAttributes.push_back(SDL_GPUVertexAttribute {
+                        .location = attrLocation++,
+                        .buffer_slot = static_cast<Uint32>(subMesh->vbos.size()),
+                        .format = elmFormat,
+                        .offset = 0
+                    });
                     subMesh->vbos.push_back(vbo);
                     // All attributes in a primitive must have the same number of vertices according to the glTF spec
                     subMesh->vertexCount = accessor.count;
                 }
             }
-            if (primitive.material >= 0) {
-                subMesh->material = materials[primitive.material];
-                // TODO: pipeline creation
-                // SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+            if (invalid) {
+                SDL_Log("Skipping a primitive due to invalid format");
+                continue;
             }
             if (primitive.indices >= 0) {
                 const auto& accessor = model.accessors[primitive.indices];
@@ -368,10 +470,53 @@ Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
                 const auto& buffer = model.buffers[bufferView.buffer];
                 subMesh->ebo = CreateAndUploadBuffer(
                     buffer.data.data() + bufferView.byteOffset + accessor.byteOffset,
-                    GetBufferSize(accessor)
+                    accessor.count * GetBufferElementSize(accessor)
                 );
                 subMesh->indexCount = accessor.count;
-                // TODO: set subMesh->indexType
+                subMesh->indexType = SDL_GPU_INDEXELEMENTSIZE_16BIT;
+            }
+            if (primitive.material >= 0) {
+                subMesh->material = materials[primitive.material];
+                // material pipeline creation
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
+                    .vertex_shader = LoadShader(device, "TexturedCube.vert", 0, 1, 0, 0),
+                    .fragment_shader = LoadShader(device, "SolidColor.frag", 5, 1, 0, 0),
+                    .vertex_input_state = (SDL_GPUVertexInputState){
+                        .vertex_buffer_descriptions = vertexBufferDescs.data(),
+                        .num_vertex_buffers = static_cast<Uint32>(vertexBufferDescs.size()),
+                        .vertex_attributes = vertexAttributes.data(),
+                        .num_vertex_attributes = static_cast<Uint32>(vertexAttributes.size()),
+                    },
+                    .rasterizer_state = {
+                        .fill_mode = SDL_GPU_FILLMODE_FILL,
+                        .cull_mode = SDL_GPU_CULLMODE_BACK,
+                    }
+                };
+                switch (primitive.mode) {
+                case TINYGLTF_MODE_POINTS:
+                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_POINTLIST;
+                    break;
+                case TINYGLTF_MODE_LINE:
+                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_LINELIST;
+                    break;
+                case TINYGLTF_MODE_LINE_STRIP:
+                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_LINESTRIP;
+                    break;
+                case TINYGLTF_MODE_TRIANGLES:
+                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                    break;
+                case TINYGLTF_MODE_TRIANGLE_STRIP:
+                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLESTRIP;
+                    break;
+                default:
+                    throw std::runtime_error("Unsupported primitive mode");
+                }
+                subMesh->material->pipelineInfo = pipelineInfo;
+                for (int i = 0; i < pipelineInfo.vertex_input_state.num_vertex_attributes; i++) {
+                    if (pipelineInfo.vertex_input_state.vertex_attributes[i].format == SDL_GPU_VERTEXELEMENTFORMAT_INVALID) {
+                        throw std::runtime_error("Invalid element format for attribute " + std::to_string(i));
+                    }
+                }
             }
             mesh->subMeshes.push_back(std::move(subMesh));
         }
@@ -401,4 +546,27 @@ Scene* LoadGLTF(SDL_GPUDevice* device, const char* filename) {
     }
     scene->name = srcScene.name;
     return scene;
+}
+
+void Unload(SDL_GPUDevice* device, std::shared_ptr<Scene> scene) {
+    for (const auto& node : scene->nodes) {
+        if (node->mesh) {
+            for (const auto& subMesh : node->mesh->subMeshes) {
+                for (const auto& vbo : subMesh->vbos) {
+                    SDL_ReleaseGPUBuffer(device, vbo.get());
+                }
+                if (subMesh->ebo) {
+                    SDL_ReleaseGPUBuffer(device, subMesh->ebo.get());
+                }
+                // if (subMesh->material) {
+                //     if (subMesh->material->albedoMap) {
+                //         SDL_ReleaseGPUTexture(device, subMesh->material->albedoMap.get());
+                //     }
+                //     if (subMesh->material->pipeline) {
+                //         SDL_ReleaseGPUGraphicsPipeline(device, subMesh->material->pipeline.get());
+                //     }
+                // }
+            }
+        }
+    }
 }

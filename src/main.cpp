@@ -205,7 +205,7 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUShader(device, fragmentShader);
 
     // Create textures & samplers
-    SDL_Surface* img = LoadImage("res/textures/rick_roll.png");
+    std::shared_ptr<SDL_Surface> img = LoadImage("res/textures/rick_roll.png");
     SDL_GPUTextureCreateInfo imgTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
@@ -242,7 +242,8 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
-    Scene* sponzaScene = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
+    std::shared_ptr<Scene> sponzaScene = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
+    // sponzaScene->Print();
     SDL_GPUTextureCreateInfo msaaTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = renderTargetFormat,
@@ -371,7 +372,6 @@ int main(int argc, char* args[]) {
 
     SDL_ReleaseGPUTransferBuffer(device, bufTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, texTransferBuffer);
-    SDL_DestroySurface(img);
 
     Camera camera(
         glm::vec3(0.0f, 0.0f, -3.0f),
@@ -566,7 +566,7 @@ int main(int argc, char* args[]) {
         SDL_SubmitGPUCommandBuffer(cmd);
     }
 
-    delete sponzaScene;
+    Unload(device, sponzaScene);
 
     // Release GPU resources
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
