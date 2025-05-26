@@ -15,6 +15,7 @@
 
 #include "helper.hpp"
 #include "camera.hpp"
+#include "geometry.hpp"
 
 bool useWireframeMode = false;
 bool useSmallViewport = false;
@@ -23,65 +24,6 @@ bool useScissorRect = false;
 SDL_GPUViewport SmallViewport = { 150, 150, 200, 200, 0.1f, 1.0f };
 SDL_Rect ScissorRect = { 250, 250, 125, 125 };
 
-struct PositionTextureVertex {
-    float x, y, z;
-    float u, v;
-};
-std::array<PositionTextureVertex, 6> quad = {{
-    // bottom-right
-    { -1, -1, 0, 0, 0 },
-    {  1, -1, 0, 1, 0 },
-	{  1,  1, 0, 1, 1 },
-    // top-left
-	{ -1, -1, 0, 0, 0 },
-	{  1,  1, 0, 1, 1 },
-	{ -1,  1, 0, 0, 1 }
-}};
-// Same as:
-// PositionTextureVertex quad[6] = {
-//     { -1, -1, 0, 0, 0 },
-// 	{  1, -1, 0, 1, 0 },
-// 	{  1,  1, 0, 1, 1 },
-// 	{ -1, -1, 0, 0, 0 },
-// 	{  1,  1, 0, 1, 1 },
-// 	{ -1,  1, 0, 0, 1 }
-// };
-std::array<PositionTextureVertex, 24> cube = {{
-    // left
-    { .5f, .5f, .5f, 1.0f, 1.0f },
-    { .5f, -.5f, .5f, 1.0f, 0.0f },
-    { -.5f, .5f, .5f, 0.0f, 1.0f },
-    { -.5f, -.5f, .5f, 0.0f, 0.0f },
-    // right
-    { .5f, .5f, -.5f, 1.0f, 1.0f },
-    { .5f, -.5f, -.5f, 1.0f, 0.0f },
-    { -.5f, .5f, -.5f, 0.0f, 1.0f },
-    { -.5f, -.5f, -.5f, 0.0f, 0.0f },
-    // back
-    { -.5f, .5f, .5f, 1.0f, 1.0f },
-    { -.5f, .5f, -.5f, 0.0f, 1.0f },
-    { -.5f, -.5f, .5f, 1.0f, 0.0f },
-    { -.5f, -.5f, -.5f, 0.0f, 0.0f },
-    // front
-    { .5f, .5f, .5f, 1.0f, 1.0f },
-    { .5f, .5f, -.5f, 0.0f, 1.0f },
-    { .5f, -.5f, .5f, 1.0f, 0.0f },
-    { .5f, -.5f, -.5f, 0.0f, 0.0f },
-    // top
-    { .5f, .5f, .5f, 1.0f, 1.0f },
-    { .5f, .5f, -.5f, 1.0f, 0.0f },
-    { -.5f, .5f, .5f, 0.0f, 1.0f },
-    { -.5f, .5f, -.5f, 0.0f, 0.0f },
-    // bottom
-    { .5f, -.5f, .5f, 1.0f, 1.0f },
-    { .5f, -.5f, -.5f, 1.0f, 0.0f },
-    { -.5f, -.5f, .5f, 0.0f, 1.0f },
-    { -.5f, -.5f, -.5f, 0.0f, 0.0f },
-}};
-std::array<Uint16, 36> cubeIndices = {{
-    0,  2,  1,  1,  2,  3,  4,  5,  6,  6,  5,  7,  8,  9,  10, 10, 9,  11,
-    12, 14, 13, 13, 14, 15, 16, 17, 18, 18, 17, 19, 20, 22, 21, 21, 22, 23
-}};
 
 struct Transform {
     glm::mat4 model;
@@ -242,8 +184,12 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
+    // Load scene
     std::shared_ptr<Scene> sponzaScene = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
     // sponzaScene->Print();
+    auto cube = CPUMesh::CreateCube();
+
+    // Create render targets
     SDL_GPUTextureCreateInfo msaaTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = renderTargetFormat,
@@ -270,19 +216,19 @@ int main(int argc, char* args[]) {
     // Create buffers
     SDL_GPUBufferCreateInfo vertexBufferCreateInfo = {
         .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
-        .size = sizeof(PositionTextureVertex) * cube.size()
+        .size = static_cast<Uint32>(cube.vertex_byte_count() * cube.vertex_count())
     };
     SDL_GPUBuffer* vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferCreateInfo);
 
     SDL_GPUBufferCreateInfo indexBufferCreateInfo = {
         .usage = SDL_GPU_BUFFERUSAGE_INDEX,
-        .size = sizeof(Uint16) * cubeIndices.size()
+        .size = static_cast<Uint32>(cube.index_byte_count() * cube.index_count())
     };
     SDL_GPUBuffer* indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCreateInfo);
 
     SDL_GPUTransferBufferCreateInfo bufTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = sizeof(PositionTextureVertex) * cube.size() + sizeof(Uint16) * cubeIndices.size()
+        .size = static_cast<Uint32>(cube.vertex_byte_count() * cube.vertex_count() + cube.index_byte_count() * cube.index_count())
     };
     SDL_GPUTransferBuffer* bufTransferBuffer = SDL_CreateGPUTransferBuffer(
 		device,
@@ -296,8 +242,8 @@ int main(int argc, char* args[]) {
             false
         )
 	);
-    memcpy(bufTransferData, cube.data(), sizeof(PositionTextureVertex) * cube.size());
-    memcpy((Uint16*)&bufTransferData[cube.size()], cubeIndices.data(), sizeof(Uint16) * cubeIndices.size());
+    memcpy(bufTransferData, cube.vertex_data(), cube.vertex_byte_count() * cube.vertex_count());
+    memcpy((Uint16*)&bufTransferData[cube.vertex_count()], cube.index_data(),  cube.index_byte_count() * cube.index_count());
 	SDL_UnmapGPUTransferBuffer(device, bufTransferBuffer);
 
     SDL_GPUTransferBufferCreateInfo texTransferBufferCreateInfo = {
@@ -330,7 +276,7 @@ int main(int argc, char* args[]) {
     SDL_GPUBufferRegion bufTransferRegion = {
         .buffer = vertexBuffer,
         .offset = 0,
-        .size = sizeof(PositionTextureVertex) * cube.size()
+        .size = static_cast<Uint32>(cube.vertex_byte_count() * cube.vertex_count())
     };
 	SDL_UploadToGPUBuffer(
 		copyPass,
@@ -338,9 +284,9 @@ int main(int argc, char* args[]) {
 		&bufTransferRegion,
 		false
 	);
-    bufTransferInfo.offset = sizeof(PositionTextureVertex) * cube.size();
+    bufTransferInfo.offset = cube.vertex_byte_count() * cube.vertex_count();
     bufTransferRegion.buffer = indexBuffer;
-    bufTransferRegion.size = sizeof(Uint16) * cubeIndices.size();
+    bufTransferRegion.size = static_cast<Uint32>(cube.index_byte_count() * cube.index_count());
 	SDL_UploadToGPUBuffer(
 		copyPass,
 		&bufTransferInfo,
@@ -496,8 +442,11 @@ int main(int argc, char* args[]) {
                     .proj = camera.GetProjMatrix()
                 };
                 SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
-                // SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
-                SDL_DrawGPUIndexedPrimitives(renderPass, cubeIndices.size(), 1, 0, 0, 0);
+                if (cube.has_indices()) {
+                    SDL_DrawGPUIndexedPrimitives(renderPass, cube.index_count(), 1, 0, 0, 0);
+                } else {
+                    SDL_DrawGPUPrimitives(renderPass, cube.vertex_count(), 1, 0, 0);
+                }
 
                 // Draw Sponza
                 // std::function<void(const std::shared_ptr<Node>&, const glm::mat4&)> drawNode =
