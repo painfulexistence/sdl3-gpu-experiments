@@ -6,7 +6,6 @@
 #include "glm/vec3.hpp"
 #include "glm/vec4.hpp"
 #include "glm/mat4x4.hpp"
-#include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
 
 #include <cmath>
@@ -15,7 +14,7 @@
 #include <functional>
 
 #include "helper.hpp"
-
+#include "camera.hpp"
 
 bool useWireframeMode = false;
 bool useSmallViewport = false;
@@ -374,6 +373,16 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUTransferBuffer(device, texTransferBuffer);
     SDL_DestroySurface(img);
 
+    Camera camera(
+        glm::vec3(0.0f, 0.0f, -3.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::radians(45.0f),
+        windowWidth / (float)windowHeight,
+        0.1f,
+        500.0f
+    );
+
     // Main loop
     bool quit = false;
     std::unordered_map<SDL_Scancode, bool> keyboardState;
@@ -401,14 +410,32 @@ int main(int argc, char* args[]) {
             }
         }
 
-        if (keyboardState[SDL_SCANCODE_W]) {
+        if (keyboardState[SDL_SCANCODE_Z]) {
             useWireframeMode = !useWireframeMode;
         }
-        if (keyboardState[SDL_SCANCODE_V]) {
+        if (keyboardState[SDL_SCANCODE_X]) {
             useSmallViewport = !useSmallViewport;
         }
-        if (keyboardState[SDL_SCANCODE_S]) {
+        if (keyboardState[SDL_SCANCODE_C]) {
             useScissorRect = !useScissorRect;
+        }
+        if (keyboardState[SDL_SCANCODE_W]) {
+            camera.Dolly(0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_S]) {
+            camera.Dolly(-0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_D]) {
+            camera.Truck(-0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_A]) {
+            camera.Truck(0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_R]) {
+            camera.Pedestal(0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_F]) {
+            camera.Pedestal(-0.1f);
         }
 
         SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
@@ -463,57 +490,63 @@ int main(int argc, char* args[]) {
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
                 SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
                 float angle = time * 0.5f;
-                Transform xform;
-                xform.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
-                glm::vec3  camPos = glm::vec3(0.0f, 0.0f, 3.0f);
-                xform.proj = glm::perspective(45.f * (float)M_PI / 180.f, windowWidth / (float)windowHeight, 0.03f, 500.0f);
-                xform.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+                Transform xform = {
+                    .model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f)),
+                    .view = camera.GetViewMatrix(),
+                    .proj = camera.GetProjMatrix()
+                };
                 SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
                 // SDL_DrawGPUPrimitives(renderPass, quad.size(), 1, 0, 0);
                 SDL_DrawGPUIndexedPrimitives(renderPass, cubeIndices.size(), 1, 0, 0, 0);
 
                 // Draw Sponza
-                std::function<void(const std::shared_ptr<Node>&, const glm::mat4&)> drawNode =
-                    [&](const std::shared_ptr<Node>& node, const glm::mat4& parentMatrix) {
-                        if (!node) return;
-                        glm::mat4 localToWorldMatrix = parentMatrix * node->localTransform;
-
-                        if (node->mesh) {
-                            for (const auto& subMesh : node->mesh->subMeshes) {
-                                if (subMesh->material) {
-                                    const auto& material = subMesh->material;
-                                    if (material->pipeline == nullptr) {
-                                        continue;
-                                    }
-                                    SDL_BindGPUGraphicsPipeline(renderPass, material->pipeline.get());
-                                    for (const auto& vbo : subMesh->vbos) {
-                                        SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vbo.get(), .offset = 0 };
-                                        SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
-                                    }
-                                    if (subMesh->material->albedoMap) {
-                                        SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = subMesh->material->albedoMap.get(), .sampler = sampler };
-                                        SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-                                    }
-                                } else {
-                                    // TODO: use default material
-                                    continue;
-                                }
-                                if (subMesh->ebo) {
-                                    SDL_GPUBufferBinding indexBufferBinding = { .buffer = subMesh->ebo.get(), .offset = 0 };
-                                    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-                                    SDL_DrawGPUIndexedPrimitives(renderPass, subMesh->indexCount, 1, 0, 0, 0);
-                                } else {
-                                    SDL_DrawGPUPrimitives(renderPass, subMesh->vertexCount, 1, 0, 0);
-                                }
-                            }
-                        }
-                        for (const auto& child : node->children) {
-                            drawNode(child, localToWorldMatrix);
-                        }
-                    };
-                for (const auto& node : sponzaScene->nodes) {
-                    drawNode(node, glm::mat4(1.0f));
-                }
+                // std::function<void(const std::shared_ptr<Node>&, const glm::mat4&)> drawNode =
+                //     [&](const std::shared_ptr<Node>& node, const glm::mat4& parentMatrix) {
+                //         if (!node) return;
+                //         glm::mat4 localToWorldMatrix = parentMatrix * node->localTransform;
+                //         if (node->mesh) {
+                //             Transform xform = {
+                //                 .model = localToWorldMatrix,
+                //                 .view = camera.GetViewMatrix(),
+                //                 .proj = camera.GetProjMatrix()
+                //             };
+                //             SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
+                //             for (const auto& subMesh : node->mesh->subMeshes) {
+                //                 if (subMesh->material) {
+                //                     const auto& material = subMesh->material;
+                //                     const auto& pipeline = material->GetPipeline(device, renderTargetFormat, msaaSampleCount);
+                //                     if (material->pipeline == nullptr) {
+                //                         continue;
+                //                     }
+                //                     SDL_BindGPUGraphicsPipeline(renderPass, pipeline.get());
+                //                     for (const auto& vbo : subMesh->vbos) {
+                //                         SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vbo.get(), .offset = 0 };
+                //                         SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+                //                     }
+                //                     if (subMesh->material->albedoMap) {
+                //                         SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = subMesh->material->albedoMap.get(), .sampler = sampler };
+                //                         SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
+                //                     }
+                //                 } else {
+                //                     // TODO: use default material
+                //                     continue;
+                //                 }
+                //                 if (subMesh->ebo) {
+                //                     SDL_GPUBufferBinding indexBufferBinding = { .buffer = subMesh->ebo.get(), .offset = 0 };
+                //                     SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, subMesh->indexType);
+                //                     SDL_DrawGPUIndexedPrimitives(renderPass, subMesh->indexCount, 1, 0, 0, 0);
+                //                 } else {
+                //                     SDL_DrawGPUPrimitives(renderPass, subMesh->vertexCount, 1, 0, 0);
+                //                 }
+                //             }
+                //         }
+                //         for (const auto& child : node->children) {
+                //             drawNode(child, localToWorldMatrix);
+                //         }
+                //     };
+                // for (const auto& node : sponzaScene->nodes) {
+                //     drawNode(node, glm::scale(glm::mat4(1.0f), glm::vec3(100.0f)));
+                // }
             }
             SDL_EndGPURenderPass(renderPass);
 

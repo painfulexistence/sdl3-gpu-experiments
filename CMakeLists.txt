@@ -28,6 +28,7 @@ find_program(GLSL_VALIDATOR "glslangValidator" REQUIRED)
 set(SOURCES
     src/main.cpp
     src/helper.cpp
+	src/camera.cpp
 )
 
 add_executable(main ${SOURCES})
