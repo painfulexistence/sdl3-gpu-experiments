@@ -229,8 +229,8 @@ std::array<Vertex, 24> CreateCubeVertices() {
     }});
 }
 
-std::array<Uint16, 36> CreateCubeIndices() {
-    return std::array<Uint16, 36>({
+std::array<Uint32, 36> CreateCubeIndices() {
+    return std::array<Uint32, 36>({
         0, 1, 2,
         2, 1, 3,
         4, 5, 6,
@@ -273,8 +273,8 @@ std::array<Vertex, 266> CreateSphereVertices() {
     return verts;
 }
 
-std::array<Uint16, 1584> CreateSphereIndices() {
-    std::array<Uint16, 1584> tris;
+std::array<Uint32, 1584> CreateSphereIndices() {
+    std::array<Uint32, 1584> tris;
 
     for (int h = 0; h <= 23; ++h) {
         tris[h * 3] = 0;

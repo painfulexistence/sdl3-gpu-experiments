@@ -15,9 +15,9 @@ struct Vertex {
 };
 
 std::array<Vertex, 24> CreateCubeVertices();
-std::array<Uint16, 36> CreateCubeIndices();
+std::array<Uint32, 36> CreateCubeIndices();
 std::array<Vertex, 266> CreateSphereVertices();
-std::array<Uint16, 1584> CreateSphereIndices();
+std::array<Uint32, 1584> CreateSphereIndices();
 
 class CPUMesh {
 public:
