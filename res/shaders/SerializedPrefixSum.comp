@@ -1,0 +1,28 @@
+#version 450
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct DrawCommand {
+    uint count;
+    uint instanceCount;
+    uint firstIndex;
+    uint baseVertex;
+    uint baseInstance;
+};
+
+layout(std430, set = 1, binding = 0) buffer CommandBuffer {
+    DrawCommand commands[];
+};
+
+layout(std430, set = 1, binding = 1) buffer PrefixSumBuffer {
+    uint baseInstances[];
+};
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= commands.length()) return;
+
+    // if (id > 0) {
+    //     baseInstances[id] = baseInstances[id - 1] + commands[id - 1].instanceCount;
+    // }
+    // commands[id].baseInstance = baseInstances[id];
+}

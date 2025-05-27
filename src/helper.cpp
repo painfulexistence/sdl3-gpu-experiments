@@ -23,7 +23,15 @@ std::map<SDL_GPUGraphicsPipeline*, std::shared_ptr<Material>> pipelineCache;
 SDL_GPUComputePipeline* CreateComputePipelineFromShader(
     SDL_GPUDevice* device,
     const char* filename,
-    SDL_GPUComputePipelineCreateInfo* createInfo
+    Uint32 samplerCount,
+    Uint32 uniformBufferCount,
+    Uint32 readonlyStorageBufferCount,
+    Uint32 readonlyStorageTextureCount,
+	Uint32 readwriteStorageBufferCount,
+    Uint32 readwriteStorageTextureCount,
+    Uint32 threadCountX,
+    Uint32 threadCountY,
+    Uint32 threadCountZ
 ) {
     const char* basePath = SDL_GetBasePath();
 	char fullPath[256];
@@ -36,13 +44,23 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
 		return nullptr;
 	}
 
-	SDL_GPUComputePipelineCreateInfo newCreateInfo = *createInfo;
-	newCreateInfo.code = static_cast<const Uint8 *>(code);
-	newCreateInfo.code_size = codeSize;
-	newCreateInfo.entrypoint = "main";
-	newCreateInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    SDL_GPUComputePipelineCreateInfo compPipelineDesc = {
+        .code_size = codeSize,
+        .code = static_cast<const Uint8 *>(code),
+        .entrypoint = "main",
+        .format = SDL_GPU_SHADERFORMAT_SPIRV,
+        .num_samplers = samplerCount,
+        .num_uniform_buffers = uniformBufferCount,
+        .num_readonly_storage_buffers = readonlyStorageBufferCount,
+        .num_readonly_storage_textures = readonlyStorageTextureCount,
+        .num_readwrite_storage_buffers = readwriteStorageBufferCount,
+        .num_readwrite_storage_textures = readwriteStorageTextureCount,
+        .threadcount_x = threadCountX,
+        .threadcount_y = threadCountY,
+        .threadcount_z = threadCountZ,
+    };
 
-	SDL_GPUComputePipeline* pipeline = SDL_ShaderCross_CompileComputePipelineFromSPIRV(device, &newCreateInfo);
+	SDL_GPUComputePipeline* pipeline = SDL_ShaderCross_CompileComputePipelineFromSPIRV(device, &compPipelineDesc);
 	if (pipeline == nullptr) {
 		SDL_Log("Failed to create compute pipeline!");
 		SDL_free(code);
@@ -546,27 +564,4 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
     }
     scene->name = srcScene.name;
     return scene;
-}
-
-void Unload(SDL_GPUDevice* device, std::shared_ptr<Scene> scene) {
-    for (const auto& node : scene->nodes) {
-        if (node->mesh) {
-            for (const auto& subMesh : node->mesh->subMeshes) {
-                for (const auto& vbo : subMesh->vbos) {
-                    SDL_ReleaseGPUBuffer(device, vbo.get());
-                }
-                if (subMesh->ebo) {
-                    SDL_ReleaseGPUBuffer(device, subMesh->ebo.get());
-                }
-                // if (subMesh->material) {
-                //     if (subMesh->material->albedoMap) {
-                //         SDL_ReleaseGPUTexture(device, subMesh->material->albedoMap.get());
-                //     }
-                //     if (subMesh->material->pipeline) {
-                //         SDL_ReleaseGPUGraphicsPipeline(device, subMesh->material->pipeline.get());
-                //     }
-                // }
-            }
-        }
-    }
 }

@@ -58,6 +58,21 @@ struct Node {
     std::vector<std::shared_ptr<Node>> children;
     glm::mat4 localTransform;
     std::shared_ptr<Mesh> mesh = nullptr;
+
+    void SetLocalTransform(const glm::mat4& transform) {
+        localTransform = transform;
+    }
+
+    std::shared_ptr<Node> CreateChild(const std::string& name, const glm::mat4& localTransform) {
+        auto child = std::make_shared<Node>();
+        child->name = name;
+        child->localTransform = localTransform;
+        children.push_back(child);
+        return child;
+    }
+    void AddChild(std::shared_ptr<Node> child) {
+        children.push_back(child);
+    }
 };
 
 class Scene {
@@ -69,9 +84,14 @@ public:
     Scene(const std::string& name) : name(name) {};
     ~Scene() = default;
 
-    void Draw();
-
     void Print();
 
-    void Unload();
+    std::shared_ptr<Node> CreateNode(const std::string& name, const glm::mat4& transform);
+    void AddNode(std::shared_ptr<Node> node);
+    std::shared_ptr<Node> FindNode(const std::string& name);
+    std::shared_ptr<Node> FindNodeInHierarchy(const std::string& name, const std::shared_ptr<Node>& node);
+    void Update(float dt);
+    void Draw();
+
+    void Release(SDL_GPUDevice* device);
 };
