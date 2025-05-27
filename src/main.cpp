@@ -56,14 +56,14 @@ struct MaterialInfo {
     float roughness;
 };
 
-struct DrawCommand {
-    Uint32 indexCount;
-    Uint32 instanceCount;
-    Uint32 firstIndex;
-    Uint32 baseVertex;
-    Uint32 baseInstance;
-};
-
+// We're using SDL_GPUIndexedIndirectDrawCommand directly
+// struct DrawCommand {
+//     Uint32 indexCount;
+//     Uint32 instanceCount;
+//     Uint32 firstIndex;
+//     Uint32 baseVertex;
+//     Uint32 baseInstance;
+// };
 
 int windowWidth, windowHeight;
 
@@ -318,7 +318,7 @@ int main(int argc, char* args[]) {
     std::array<MaterialInfo, numMaterials> materialInfos = {};
     std::array<Uint32, numInstances> visibleInstanceIndices = {};
     Uint32 visibleCounter = 0;
-    std::array<DrawCommand, numDrawCommands> drawCommands = {};
+    std::array<SDL_GPUIndexedIndirectDrawCommand, numDrawCommands> drawCommands = {};
     std::array<Uint32, numDrawCommands> prefixSums = {};
 
     for (int i = 0; i < instances.size(); i++) {
@@ -336,7 +336,7 @@ int main(int argc, char* args[]) {
     Uint32 materialBufferSize = sizeof(MaterialInfo) * materialInfos.size();
     Uint32 visibilityBufferSize = sizeof(Uint32) * visibleInstanceIndices.size();
     Uint32 visibleCounterBufferSize = sizeof(Uint32);
-    Uint32 drawCommandBufferSize = sizeof(DrawCommand) * drawCommands.size();
+    Uint32 drawCommandBufferSize = sizeof(SDL_GPUIndexedIndirectDrawCommand) * drawCommands.size();
     Uint32 prefixSumBufferSize = sizeof(Uint32) * prefixSums.size();
 
     Uint32 vertexBufferOffset = 0;
