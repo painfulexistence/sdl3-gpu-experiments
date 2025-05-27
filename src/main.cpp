@@ -235,16 +235,7 @@ int main(int argc, char* args[]) {
         &bufTransferBufferCreateInfo
 	);
 
-	PositionTextureVertex* bufTransferData = reinterpret_cast<PositionTextureVertex*>(
-        SDL_MapGPUTransferBuffer(
-            device,
-            bufTransferBuffer,
-            false
-        )
-	);
-    memcpy(bufTransferData, cube.vertex_data(), cube.vertex_byte_count() * cube.vertex_count());
-    memcpy((Uint16*)&bufTransferData[cube.vertex_count()], cube.index_data(),  cube.index_byte_count() * cube.index_count());
-	SDL_UnmapGPUTransferBuffer(device, bufTransferBuffer);
+    cube.Stage(device, bufTransferBuffer);
 
     SDL_GPUTransferBufferCreateInfo texTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -269,30 +260,9 @@ int main(int argc, char* args[]) {
 	SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
 
 	SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmd);
-    SDL_GPUTransferBufferLocation bufTransferInfo = {
-        .transfer_buffer = bufTransferBuffer,
-        .offset = 0
-    };
-    SDL_GPUBufferRegion bufTransferRegion = {
-        .buffer = vertexBuffer,
-        .offset = 0,
-        .size = static_cast<Uint32>(cube.vertex_byte_count() * cube.vertex_count())
-    };
-	SDL_UploadToGPUBuffer(
-		copyPass,
-		&bufTransferInfo,
-		&bufTransferRegion,
-		false
-	);
-    bufTransferInfo.offset = cube.vertex_byte_count() * cube.vertex_count();
-    bufTransferRegion.buffer = indexBuffer;
-    bufTransferRegion.size = static_cast<Uint32>(cube.index_byte_count() * cube.index_count());
-	SDL_UploadToGPUBuffer(
-		copyPass,
-		&bufTransferInfo,
-		&bufTransferRegion,
-		false
-	);
+
+    cube.Upload(device, copyPass, bufTransferBuffer);
+
     SDL_GPUTextureTransferInfo texTransferInfo = {
         .transfer_buffer = texTransferBuffer,
         .offset = 0
@@ -310,6 +280,7 @@ int main(int argc, char* args[]) {
 		&texTransferRegion,
 		false
 	);
+
 	SDL_EndGPUCopyPass(copyPass);
 
     SDL_GenerateMipmapsForGPUTexture(cmd, imgTexture);
@@ -429,10 +400,6 @@ int main(int argc, char* args[]) {
                 SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
                 if (useSmallViewport) SDL_SetGPUViewport(renderPass, &SmallViewport);
                 if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
-                SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vertexBuffer, .offset = 0 };
-                SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
-                SDL_GPUBufferBinding indexBufferBinding = { .buffer = indexBuffer, .offset = 0 };
-                SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
                 SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
                 float angle = time * 0.5f;
@@ -442,6 +409,7 @@ int main(int argc, char* args[]) {
                     .proj = camera.GetProjMatrix()
                 };
                 SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
+                cube.Bind(renderPass);
                 if (cube.has_indices()) {
                     SDL_DrawGPUIndexedPrimitives(renderPass, cube.index_count(), 1, 0, 0, 0);
                 } else {
@@ -516,6 +484,7 @@ int main(int argc, char* args[]) {
     }
 
     Unload(device, sponzaScene);
+    cube.Release(device);
 
     // Release GPU resources
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
@@ -526,8 +495,6 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_ReleaseGPUTexture(device, msaaTexture);
     SDL_ReleaseGPUTexture(device, resolveTexture);
-    SDL_ReleaseGPUBuffer(device, vertexBuffer);
-    SDL_ReleaseGPUBuffer(device, indexBuffer);
 
     // Release window and GPU device
     SDL_ReleaseWindowFromGPUDevice(device, window);
