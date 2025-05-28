@@ -16,6 +16,7 @@
 #include "helper.hpp"
 #include "camera.hpp"
 #include "geometry.hpp"
+#include "rng.hpp"
 
 bool useWireframeMode = false;
 bool useSmallViewport = false;
@@ -65,9 +66,17 @@ struct MaterialInfo {
 //     Uint32 baseInstance;
 // };
 
+struct Particle {
+    glm::vec2 position;
+    glm::vec2 velocity;
+    glm::vec4 color;
+};
+
 int windowWidth, windowHeight;
 
 int main(int argc, char* args[]) {
+    RNG rng;
+
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL could not initialize! Error: %s\n", SDL_GetError());
         return -1;
@@ -111,12 +120,30 @@ int main(int argc, char* args[]) {
 		return -1;
 	}
 
+    SDL_GPUShader* particleVertexShader = LoadShader(device, "Particle.vert", 0, 1, 1, 0);
+	if (particleVertexShader == NULL) {
+		SDL_Log("Failed to create vertex shader!");
+		return -1;
+	}
+
+	SDL_GPUShader* particleFragmentShader = LoadShader(device, "Particle.frag", 0, 0, 0, 0);
+	if (particleFragmentShader == NULL) {
+		SDL_Log("Failed to create fragment shader!");
+		return -1;
+	}
+
     // Create compute pipelines
     SDL_Log("Create compute pipelines");
     SDL_GPUComputePipeline* procTexturePipeline = CreateComputePipelineFromShader(
 	    device,
 	    "Mandelbrot.comp",
         0, 1, 0, 0, 0, 1, 16, 16, 1
+    );
+
+    SDL_GPUComputePipeline* particleSimulationPipeline = CreateComputePipelineFromShader(
+	    device,
+	    "Particle.comp",
+        0, 1, 0, 0, 2, 0, 256, 1, 1
     );
 
     SDL_GPUComputePipeline* cullingPipeline = CreateComputePipelineFromShader(
@@ -220,7 +247,16 @@ int main(int argc, char* args[]) {
         },
         .target_info = {
 			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
-				.format = renderTargetFormat
+				.format = renderTargetFormat,
+                .blend_state = {
+				    .enable_blend = true,
+					.alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+					.color_blend_op = SDL_GPU_BLENDOP_ADD,
+					.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+					.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+					.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+					.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE
+				}
 			}},
             .num_color_targets = 1,
 		},
@@ -237,6 +273,14 @@ int main(int argc, char* args[]) {
 		SDL_Log("Failed to create textured line pipeline!");
 		return -1;
 	}
+    gfxPipelineDesc.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    gfxPipelineDesc.vertex_shader = particleVertexShader;
+    gfxPipelineDesc.fragment_shader = particleFragmentShader;
+    SDL_GPUGraphicsPipeline* particlePipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
+    if (particlePipeline == NULL) {
+        SDL_Log("Failed to create particle pipeline!");
+        return -1;
+    }
     gfxPipelineDesc.vertex_shader = uberVertexShader;
     gfxPipelineDesc.fragment_shader = uberFragmentShader;
     gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
@@ -254,6 +298,8 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUShader(device, simpleFragmentShader);
 	SDL_ReleaseGPUShader(device, uberVertexShader);
 	SDL_ReleaseGPUShader(device, uberFragmentShader);
+	SDL_ReleaseGPUShader(device, particleVertexShader);
+	SDL_ReleaseGPUShader(device, particleFragmentShader);
 
     // Create textures & samplers
     std::shared_ptr<SDL_Surface> img = LoadImage("res/textures/rick_roll.png");
@@ -294,14 +340,36 @@ int main(int argc, char* args[]) {
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
     // Load scene
-    std::shared_ptr<Scene> sponza = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
+    // std::shared_ptr<Scene> sponza = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
     // sponza->Print();
-    auto testMesh = CPUMesh::CreateCube();
-    auto testMeshInstances = std::vector<SimpleInstance>({
+    auto simpleCube = CPUMesh::CreateCube();
+    auto simpleCubeInstances = std::vector<SimpleInstance>({
         {
             .model = glm::identity<glm::mat4>()
         }
     });
+    auto quad = CPUMesh::CreateQuad();
+
+    constexpr Uint32 numParticles = 50000;
+    std::vector<Particle> particles(numParticles);
+    for (auto& particle : particles) {
+        float r = sqrt(rng.RandomFloat()) * 0.5f;
+        float theta = rng.RandomFloat() * 2 * glm::pi<float>();
+        float spiral_offset = rng.RandomFloat() * 2.5f;
+        float x = r * cos(theta + spiral_offset) * windowHeight / windowWidth;
+        float y = r * sin(theta + spiral_offset);
+
+        particle.position = glm::vec2(x, y);
+        glm::vec2 tangent = glm::normalize(glm::vec2(-y, x));
+        particle.velocity = tangent * (0.3f / (r + 0.5f)) * 0.5f;
+
+        float brightness = 1.0f - (r / 1.0f);
+        glm::vec3 a = glm::vec3(0.746, 0.815, 0.846);
+        glm::vec3 b = glm::vec3(0.195, 0.283, 0.187);
+        glm::vec3 c = glm::vec3(1.093, 1.417, 1.405);
+        glm::vec3 d = glm::vec3(5.435, 2.400, 5.741);
+        particle.color = glm::vec4(a + b * glm::cos(6.28318f * (c * brightness + d)), 1.0f);
+    }
 
     // Data for SSBOs
     // FIXME: setting instance count to 1000000 is causing seg fault
@@ -376,6 +444,14 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUTexture* resolveTexture = SDL_CreateGPUTexture(device, &resolveTextureCreateInfo);
 
+    // Create buffers
+    SDL_GPUBufferCreateInfo particleBufferDesc = {
+        .usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
+        .size = static_cast<Uint32>(sizeof(Particle) * particles.size())
+    };
+    SDL_GPUBuffer* particleBuffer0 = SDL_CreateGPUBuffer(device, &particleBufferDesc);
+    SDL_GPUBuffer* particleBuffer1 = SDL_CreateGPUBuffer(device, &particleBufferDesc);
+
     // Create SSBOs
     SDL_Log("Create SSBOs");
     SDL_GPUBufferCreateInfo vertexBufferDesc = {
@@ -438,15 +514,25 @@ int main(int argc, char* args[]) {
     }
 
     // Transfer data to staging buffer
-    SDL_GPUTransferBufferCreateInfo bufTransferBufferCreateInfo = {
+    SDL_GPUTransferBufferCreateInfo cubeTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = static_cast<Uint32>(testMesh.vertex_byte_count() * testMesh.vertex_count() + testMesh.index_byte_count() * testMesh.index_count())
+        .size = static_cast<Uint32>(simpleCube.vertex_byte_count() * simpleCube.vertex_count() + simpleCube.index_byte_count() * simpleCube.index_count())
     };
-    SDL_GPUTransferBuffer* bufTransferBuffer = SDL_CreateGPUTransferBuffer(
+    SDL_GPUTransferBuffer* cubeTransferBuffer = SDL_CreateGPUTransferBuffer(
 		device,
-        &bufTransferBufferCreateInfo
+        &cubeTransferBufferCreateInfo
 	);
-    testMesh.Stage(device, bufTransferBuffer);
+    simpleCube.Stage(device, cubeTransferBuffer);
+
+    SDL_GPUTransferBufferCreateInfo quadTransferBufferCreateInfo = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = static_cast<Uint32>(quad.vertex_byte_count() * quad.vertex_count() + quad.index_byte_count() * quad.index_count())
+    };
+    SDL_GPUTransferBuffer* quadTransferBuffer = SDL_CreateGPUTransferBuffer(
+		device,
+        &quadTransferBufferCreateInfo
+	);
+    quad.Stage(device, quadTransferBuffer);
 
     SDL_GPUTransferBufferCreateInfo texTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -465,6 +551,24 @@ int main(int argc, char* args[]) {
 	);
     memcpy(texTransferData, img->pixels, img->w * img->h * 4);
 	SDL_UnmapGPUTransferBuffer(device, texTransferBuffer);
+
+    SDL_GPUTransferBufferCreateInfo particleTransferBufferDesc = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = static_cast<Uint32>(sizeof(Particle) * particles.size())
+    };
+    SDL_GPUTransferBuffer* particleTransferBuffer = SDL_CreateGPUTransferBuffer(
+        device,
+        &particleTransferBufferDesc
+    );
+    auto particleTransferData = reinterpret_cast<Particle*>(
+        SDL_MapGPUTransferBuffer(
+            device,
+            particleTransferBuffer,
+            false
+        )
+    );
+    memcpy(particleTransferData, particles.data(), sizeof(Particle) * particles.size()); // Leave it mapped
+    SDL_UnmapGPUTransferBuffer(device, particleTransferBuffer);
 
     SDL_GPUTransferBufferCreateInfo ssboTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -499,7 +603,9 @@ int main(int argc, char* args[]) {
 
 	SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmd);
 
-    testMesh.Upload(device, copyPass, bufTransferBuffer);
+    simpleCube.Upload(device, copyPass, cubeTransferBuffer);
+
+    quad.Upload(device, copyPass, quadTransferBuffer);
 
     SDL_GPUTextureTransferInfo texTransferInfo = {
         .transfer_buffer = texTransferBuffer,
@@ -518,6 +624,29 @@ int main(int argc, char* args[]) {
 		&texTransferRegion,
 		false
 	);
+
+    SDL_GPUTransferBufferLocation particleTransferLocation = {
+        .transfer_buffer = particleTransferBuffer,
+        .offset = 0
+    };
+    SDL_GPUBufferRegion particleTransferRegion = {
+        .buffer = particleBuffer0,
+        .offset = 0,
+        .size = static_cast<Uint32>(sizeof(Particle) * particles.size())
+    };
+    SDL_UploadToGPUBuffer(
+        copyPass,
+        &particleTransferLocation,
+        &particleTransferRegion,
+        false
+    );
+    particleTransferRegion.buffer = particleBuffer1;
+    SDL_UploadToGPUBuffer(
+        copyPass,
+        &particleTransferLocation,
+        &particleTransferRegion,
+        false
+    );
 
     SDL_GPUTransferBufferLocation ssboTransferInfo = {
         .transfer_buffer = ssboTransferBuffer,
@@ -613,9 +742,11 @@ int main(int argc, char* args[]) {
 
     SDL_SubmitGPUCommandBuffer(cmd);
 
-    SDL_ReleaseGPUTransferBuffer(device, bufTransferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, cubeTransferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, quadTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, texTransferBuffer);
     SDL_ReleaseGPUTransferBuffer(device, ssboTransferBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, particleTransferBuffer);
 
     Camera camera(
         glm::vec3(0.0f, 0.0f, -3.0f),
@@ -628,6 +759,8 @@ int main(int argc, char* args[]) {
     );
 
     // Main loop
+    Uint32 frameCount = 0;
+    float time = SDL_GetTicks() / 1000.0f;
     bool quit = false;
     std::unordered_map<SDL_Scancode, bool> keyboardState;
     while (!quit) {
@@ -682,6 +815,10 @@ int main(int argc, char* args[]) {
             camera.Pedestal(-0.1f);
         }
 
+        float currTime = SDL_GetTicks() / 1000.0f;
+        float deltaTime = currTime - time;
+        time = currTime;
+
         SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
         if (cmd == NULL) {
             SDL_Log("AcquireGPUCommandBuffer failed: %s", SDL_GetError());
@@ -701,12 +838,30 @@ int main(int argc, char* args[]) {
             0
         );
         SDL_BindGPUComputePipeline(computePass, procTexturePipeline);
-        float time = SDL_GetTicks() / 1000.0;
         SDL_PushGPUComputeUniformData(cmd, 0, &time, sizeof(float));
         SDL_DispatchGPUCompute(computePass, ceil(procTextureSize / 16.0), ceil(procTextureSize / 16.0), 1);
         SDL_EndGPUComputePass(computePass);
 
         SDL_GenerateMipmapsForGPUTexture(cmd, procTexture);
+
+        SDL_GPUComputePass* particlePass = SDL_BeginGPUComputePass(
+            cmd,
+            nullptr,
+            0,
+            (SDL_GPUStorageBufferReadWriteBinding[]){
+                {
+                    .buffer = frameCount % 2 == 0 ? particleBuffer0 : particleBuffer1,
+                },
+                {
+                    .buffer = frameCount % 2 == 0 ? particleBuffer1 : particleBuffer0,
+                }
+            },
+            2
+        );
+        SDL_BindGPUComputePipeline(particlePass, particleSimulationPipeline);
+        SDL_PushGPUComputeUniformData(cmd, 0, &deltaTime, sizeof(float));
+        SDL_DispatchGPUCompute(particlePass, (particles.size() + 255) / 256, 1, 1);
+        SDL_EndGPUComputePass(particlePass);
 
         //TODO: zero out the counter buffer
         SDL_Log("Begin reset counter pass");
@@ -836,16 +991,27 @@ int main(int argc, char* args[]) {
                     .view = camera.GetViewMatrix(),
                     .proj = camera.GetProjMatrix()
                 };
-                auto instance = testMeshInstances[0];
+                auto instance = simpleCubeInstances[0];
                 instance.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
                 SDL_PushGPUVertexUniformData(cmd, 1, &instance, sizeof(SimpleInstance));
 
-                testMesh.Bind(renderPass);
-                if (testMesh.has_indices()) {
-                    SDL_DrawGPUIndexedPrimitives(renderPass, testMesh.index_count(), 1, 0, 0, 0);
+                simpleCube.Bind(renderPass);
+                if (simpleCube.has_indices()) {
+                    SDL_DrawGPUIndexedPrimitives(renderPass, simpleCube.index_count(), 1, 0, 0, 0);
                 } else {
-                    SDL_DrawGPUPrimitives(renderPass, testMesh.vertex_count(), 1, 0, 0);
+                    SDL_DrawGPUPrimitives(renderPass, simpleCube.vertex_count(), 1, 0, 0);
+                }
+
+                // Draw particles
+                SDL_BindGPUGraphicsPipeline(renderPass, particlePipeline);
+                SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+                SDL_BindGPUVertexStorageBuffers(renderPass, 0, &(frameCount % 2 == 0 ? particleBuffer0 : particleBuffer1), 1);
+                quad.Bind(renderPass);
+                if (quad.has_indices()) {
+                    SDL_DrawGPUIndexedPrimitives(renderPass, quad.index_count(), particles.size(), 0, 0, 0);
+                } else {
+                    SDL_DrawGPUPrimitives(renderPass, quad.vertex_count(), particles.size(), 0, 0);
                 }
 
                 // Draw SSBO scene
@@ -924,11 +1090,14 @@ int main(int argc, char* args[]) {
         }
 
         SDL_SubmitGPUCommandBuffer(cmd);
+
+        frameCount++;
     }
 
     // Release GPU resources
-    sponza->Release(device);
-    testMesh.Release(device);
+    // sponza->Release(device);
+    simpleCube.Release(device);
+    quad.Release(device);
 
     SDL_ReleaseGPUBuffer(device, instanceBuffer);
     SDL_ReleaseGPUBuffer(device, meshBuffer);
@@ -939,8 +1108,11 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUBuffer(device, prefixSumBuffer);
     SDL_ReleaseGPUBuffer(device, vertexBuffer);
     SDL_ReleaseGPUBuffer(device, indexBuffer);
+    SDL_ReleaseGPUBuffer(device, particleBuffer0);
+    SDL_ReleaseGPUBuffer(device, particleBuffer1);
 
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
+    SDL_ReleaseGPUComputePipeline(device, particleSimulationPipeline);
     SDL_ReleaseGPUComputePipeline(device, resetCounterPipeline);
     SDL_ReleaseGPUComputePipeline(device, cullingPipeline);
     SDL_ReleaseGPUComputePipeline(device, commandBuildingPipeline);
@@ -948,6 +1120,7 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUGraphicsPipeline(device, fillPipeline);
 	SDL_ReleaseGPUGraphicsPipeline(device, linePipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, uberPipeline);
+    SDL_ReleaseGPUGraphicsPipeline(device, particlePipeline);
 
     SDL_ReleaseGPUTexture(device, imgTexture);
     SDL_ReleaseGPUTexture(device, procTexture);

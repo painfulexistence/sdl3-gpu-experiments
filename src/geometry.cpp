@@ -124,11 +124,13 @@ void CPUMesh::Stage(SDL_GPUDevice* device, SDL_GPUTransferBuffer* transferBuffer
     };
     _vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferCreateInfo);
 
-    SDL_GPUBufferCreateInfo indexBufferCreateInfo = {
-        .usage = SDL_GPU_BUFFERUSAGE_INDEX,
-        .size = static_cast<Uint32>(index_byte_count() * index_count())
-    };
-    _indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCreateInfo);
+    if (has_indices()) {
+        SDL_GPUBufferCreateInfo indexBufferCreateInfo = {
+            .usage = SDL_GPU_BUFFERUSAGE_INDEX,
+            .size = static_cast<Uint32>(index_byte_count() * index_count())
+        };
+        _indexBuffer = SDL_CreateGPUBuffer(device, &indexBufferCreateInfo);
+    }
 
     // Copy data to transfer buffer
 	PositionTextureVertex* transferData = reinterpret_cast<PositionTextureVertex*>(
@@ -139,7 +141,9 @@ void CPUMesh::Stage(SDL_GPUDevice* device, SDL_GPUTransferBuffer* transferBuffer
         )
 	);
     memcpy(transferData, vertex_data(), vertex_byte_count() * vertex_count());
-    memcpy((Uint16*)&transferData[vertex_count()], index_data(),  index_byte_count() * index_count());
+    if (has_indices()) {
+        memcpy((Uint16*)&transferData[vertex_count()], index_data(),  index_byte_count() * index_count());
+    }
 	SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 }
 
@@ -159,22 +163,26 @@ void CPUMesh::Upload(SDL_GPUDevice* device, SDL_GPUCopyPass* copyPass, SDL_GPUTr
 		&bufTransferRegion,
 		false
 	);
-    bufTransferInfo.offset = vertex_byte_count() * vertex_count();
-    bufTransferRegion.buffer = _indexBuffer;
-    bufTransferRegion.size = static_cast<Uint32>(index_byte_count() * index_count());
-	SDL_UploadToGPUBuffer(
-		copyPass,
-		&bufTransferInfo,
-		&bufTransferRegion,
-		false
-	);
+    if (has_indices()) {
+        bufTransferInfo.offset = vertex_byte_count() * vertex_count();
+        bufTransferRegion.buffer = _indexBuffer;
+        bufTransferRegion.size = static_cast<Uint32>(index_byte_count() * index_count());
+        SDL_UploadToGPUBuffer(
+            copyPass,
+            &bufTransferInfo,
+            &bufTransferRegion,
+            false
+        );
+    }
 }
 
 void CPUMesh::Bind(SDL_GPURenderPass* renderPass) {
     SDL_GPUBufferBinding vertexBufferBinding = { .buffer = _vertexBuffer, .offset = 0 };
     SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
-    SDL_GPUBufferBinding indexBufferBinding = { .buffer = _indexBuffer, .offset = 0 };
-    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+    if (has_indices()) {
+        SDL_GPUBufferBinding indexBufferBinding = { .buffer = _indexBuffer, .offset = 0 };
+        SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+    }
 }
 
 void CPUMesh::Draw(SDL_GPURenderPass* renderPass) {
