@@ -28,7 +28,8 @@ void main() {
     // }
 
     Particle p = particles[id];
-    p.position += p.velocity * deltaTime;
+    p.velocity += vec2(-p.velocity.y, p.velocity.x) * deltaTime * 0.2f;
+    p.position += p.velocity * deltaTime * 0.1f;
 
     particles2[id] = p;
 }

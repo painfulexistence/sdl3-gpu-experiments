@@ -86,7 +86,7 @@ int main(int argc, char* args[]) {
 		SDL_Log("GPUCreateDevice failed: %s", SDL_GetError());
 		return -1;
 	}
-    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 1000, 1000, SDL_WINDOW_RESIZABLE);
+    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 720, 720, SDL_WINDOW_RESIZABLE);
 	if (!SDL_ClaimWindowForGPUDevice(device, window)) {
 		fmt::print("GPUClaimWindow failed");
 		return -1;
@@ -350,10 +350,10 @@ int main(int argc, char* args[]) {
     });
     auto quad = CPUMesh::CreateQuad();
 
-    constexpr Uint32 numParticles = 50000;
+    constexpr Uint32 numParticles = 100000;
     std::vector<Particle> particles(numParticles);
     for (auto& particle : particles) {
-        float r = sqrt(rng.RandomFloat()) * 0.5f;
+        float r = sqrt(rng.RandomFloat()) * 0.1f;
         float theta = rng.RandomFloat() * 2 * glm::pi<float>();
         float spiral_offset = rng.RandomFloat() * 2.5f;
         float x = r * cos(theta + spiral_offset) * windowHeight / windowWidth;
@@ -361,7 +361,7 @@ int main(int argc, char* args[]) {
 
         particle.position = glm::vec2(x, y);
         glm::vec2 tangent = glm::normalize(glm::vec2(-y, x));
-        particle.velocity = tangent * (0.3f / (r + 0.5f)) * 0.5f;
+        particle.velocity = tangent * (0.2f / (r + 0.025f)) * 0.25f;
 
         float brightness = 1.0f - (r / 1.0f);
         glm::vec3 a = glm::vec3(0.746, 0.815, 0.846);
