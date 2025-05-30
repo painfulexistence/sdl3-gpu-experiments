@@ -42,7 +42,7 @@ struct Instance {
 };
 
 struct MeshInfo {
-    Uint32 baseVertex;
+    Sint32 baseVertex;
     Uint32 baseIndex;
     Uint32 indexCount;
 };
@@ -67,9 +67,16 @@ struct MaterialInfo {
 // };
 
 struct Particle {
-    glm::vec2 position;
-    glm::vec2 velocity;
+    glm::vec3 position;
+    glm::vec3 velocity;
     glm::vec4 color;
+};
+
+struct ShaderParams {
+    float time;
+    float deltaTime;
+    glm::vec2 resolution;
+    glm::vec2 mousePosition;
 };
 
 int windowWidth, windowHeight;
@@ -81,18 +88,19 @@ int main(int argc, char* args[]) {
         SDL_Log("SDL could not initialize! Error: %s\n", SDL_GetError());
         return -1;
     }
+
+    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 720, 720, SDL_WINDOW_RESIZABLE);
+    SDL_GetWindowSizeInPixels(window, &windowWidth, &windowHeight);
+
     SDL_GPUDevice* device = SDL_CreateGPUDevice(SDL_ShaderCross_GetSPIRVShaderFormats(), true, NULL);
 	if (device == NULL) {
 		SDL_Log("GPUCreateDevice failed: %s", SDL_GetError());
 		return -1;
 	}
-    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 720, 720, SDL_WINDOW_RESIZABLE);
 	if (!SDL_ClaimWindowForGPUDevice(device, window)) {
 		fmt::print("GPUClaimWindow failed");
 		return -1;
 	}
-
-    SDL_GetWindowSizeInPixels(window, &windowWidth, &windowHeight);
 
     // Create shaders
 	SDL_Log("Create shaders");
@@ -155,7 +163,7 @@ int main(int argc, char* args[]) {
     SDL_GPUComputePipeline* commandBuildingPipeline = CreateComputePipelineFromShader(
 	    device,
 	    "CommandBuild.comp",
-        0, 0, 3, 0, 1, 0, 64, 1, 1
+        0, 0, 4, 0, 1, 0, 64, 1, 1
     );
 
     SDL_GPUComputePipeline* prefixSumPipeline = CreateComputePipelineFromShader(
@@ -350,7 +358,7 @@ int main(int argc, char* args[]) {
     });
     auto quad = CPUMesh::CreateQuad();
 
-    constexpr Uint32 numParticles = 100000;
+    constexpr Uint32 numParticles = 1000000;
     std::vector<Particle> particles(numParticles);
     for (auto& particle : particles) {
         float r = sqrt(rng.RandomFloat()) * 0.1f;
@@ -359,8 +367,8 @@ int main(int argc, char* args[]) {
         float x = r * cos(theta + spiral_offset) * windowHeight / windowWidth;
         float y = r * sin(theta + spiral_offset);
 
-        particle.position = glm::vec2(x, y);
-        glm::vec2 tangent = glm::normalize(glm::vec2(-y, x));
+        particle.position = glm::vec3(x, y, 0);
+        glm::vec3 tangent = glm::normalize(glm::vec3(-y, x, 0));
         particle.velocity = tangent * (0.2f / (r + 0.025f)) * 0.25f;
 
         float brightness = 1.0f - (r / 1.0f);
@@ -373,10 +381,10 @@ int main(int argc, char* args[]) {
 
     // Data for SSBOs
     // FIXME: setting instance count to 1000000 is causing seg fault
-    constexpr int numInstances = 200;
-    constexpr int numMeshes = 10;
-    constexpr int numMaterials = 100;
-    constexpr int numDrawCommands = numMeshes;
+    constexpr Uint32 numInstances = 200;
+    constexpr Uint32 numMeshes = 10;
+    constexpr Uint32 numMaterials = 100;
+    constexpr Uint32 numDrawCommands = numMeshes;
     auto cubeVertices = CreateCubeVertices();
     auto cubeIndices = CreateCubeIndices();
     auto sphereVertices = CreateSphereVertices();
@@ -391,9 +399,31 @@ int main(int argc, char* args[]) {
 
     for (int i = 0; i < instances.size(); i++) {
         instances[i] = {
-            .model = glm::identity<glm::mat4>(),
-            .meshID = 0,
-            .materialID = 0
+            .model = glm::translate(glm::identity<glm::mat4>(), glm::vec3(rng.RandomFloatInRange(-10.0f, 10.0f), rng.RandomFloatInRange(-10.0f, 10.0f), rng.RandomFloatInRange(-10.0f, 10.0f))),
+            .meshID = static_cast<Uint32>(rng.RandomIntInRange(0, meshInfos.size() - 1)),
+            .materialID = static_cast<Uint32>(rng.RandomIntInRange(0, materialInfos.size() - 1))
+        };
+    }
+    for (int i = 0; i < meshInfos.size(); i++) {
+        if (rng.RandomFloat() < 0.5f) {
+            meshInfos[i] = {
+                .baseVertex = 0,
+                .baseIndex = 0,
+                .indexCount = 36
+            };
+        } else {
+            meshInfos[i] = {
+                .baseVertex = 24,
+                .baseIndex = 36,
+                .indexCount = 1584
+            };
+        }
+    }
+    for (int i = 0; i < materialInfos.size(); i++) {
+        materialInfos[i] = {
+            .diffuse = glm::vec3(rng.RandomFloat(), rng.RandomFloat(), rng.RandomFloat()),
+            .specular = glm::vec3(rng.RandomFloat(), rng.RandomFloat(), rng.RandomFloat()),
+            .roughness = rng.RandomFloat()
         };
     }
 
@@ -819,6 +849,16 @@ int main(int argc, char* args[]) {
         float deltaTime = currTime - time;
         time = currTime;
 
+        float mouseX, mouseY;
+        SDL_GetMouseState(&mouseX, &mouseY);
+
+        ShaderParams shaderParams = {
+            .resolution = glm::vec2(windowWidth, windowHeight),
+            .time = time,
+            .deltaTime = deltaTime,
+            .mousePosition = glm::vec2(mouseX, mouseY)
+        };
+
         SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
         if (cmd == NULL) {
             SDL_Log("AcquireGPUCommandBuffer failed: %s", SDL_GetError());
@@ -838,7 +878,7 @@ int main(int argc, char* args[]) {
             0
         );
         SDL_BindGPUComputePipeline(computePass, procTexturePipeline);
-        SDL_PushGPUComputeUniformData(cmd, 0, &time, sizeof(float));
+        SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
         SDL_DispatchGPUCompute(computePass, ceil(procTextureSize / 16.0), ceil(procTextureSize / 16.0), 1);
         SDL_EndGPUComputePass(computePass);
 
@@ -859,109 +899,113 @@ int main(int argc, char* args[]) {
             2
         );
         SDL_BindGPUComputePipeline(particlePass, particleSimulationPipeline);
-        SDL_PushGPUComputeUniformData(cmd, 0, &deltaTime, sizeof(float));
+        SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
         SDL_DispatchGPUCompute(particlePass, (particles.size() + 255) / 256, 1, 1);
         SDL_EndGPUComputePass(particlePass);
 
-        //TODO: zero out the counter buffer
-        SDL_Log("Begin reset counter pass");
-        SDL_GPUComputePass* resetPass = SDL_BeginGPUComputePass(
-            cmd,
-            nullptr,
-            0,
-            (SDL_GPUStorageBufferReadWriteBinding[]){
-                {
-                    .buffer = visibleCounterBuffer,
-                }
-            },
-            1
-        );
-        SDL_BindGPUComputePipeline(resetPass, resetCounterPipeline);
-        // SDL_BindGPUComputeStorageBuffers(resetPass, 0, &counterBuffer, 1);
-        SDL_DispatchGPUCompute(resetPass, 1, 1, 1);
-        SDL_EndGPUComputePass(resetPass);
+        // //TODO: zero out the counter buffer
+        // SDL_Log("Begin reset counter pass");
+        // SDL_GPUComputePass* resetPass = SDL_BeginGPUComputePass(
+        //     cmd,
+        //     nullptr,
+        //     0,
+        //     (SDL_GPUStorageBufferReadWriteBinding[]){
+        //         {
+        //             .buffer = visibleCounterBuffer,
+        //         }
+        //     },
+        //     1
+        // );
+        // SDL_BindGPUComputePipeline(resetPass, resetCounterPipeline);
+        // // SDL_BindGPUComputeStorageBuffers(resetPass, 0, &counterBuffer, 1);
+        // SDL_DispatchGPUCompute(resetPass, 1, 1, 1);
+        // SDL_EndGPUComputePass(resetPass);
 
-        // 2. culling pass
-        SDL_Log("Begin culling pass");
-        SDL_GPUComputePass* cullingPass = SDL_BeginGPUComputePass(
-            cmd,
-            nullptr,
-            0,
-            (SDL_GPUStorageBufferReadWriteBinding[]){
-                {
-                    .buffer = instanceBuffer,
-                },
-                {
-                    .buffer = visibilityBuffer,
-                },
-                {
-                    .buffer = visibleCounterBuffer,
-                }
-            },
-            3
-        );
-        SDL_BindGPUComputePipeline(cullingPass, cullingPipeline);
-        CameraInfo camInfo = {
-            .view = camera.GetViewMatrix(),
-            .proj = camera.GetProjMatrix()
-        };
-        SDL_PushGPUComputeUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
-        SDL_BindGPUComputeStorageBuffers(cullingPass, 0, &instanceBuffer, 1);
-        // SDL_BindGPUComputeStorageBuffers(cullingPass, 1, &visibilityBuffer, 1);
-        // SDL_BindGPUComputeStorageBuffers(cullingPass, 2, &counterBuffer, 1);
-        SDL_DispatchGPUCompute(cullingPass, (instances.size() + 63) / 64, 1, 1);
-        SDL_EndGPUComputePass(cullingPass);
+        // // 2. culling pass
+        // SDL_Log("Begin culling pass");
+        // SDL_GPUComputePass* cullingPass = SDL_BeginGPUComputePass(
+        //     cmd,
+        //     nullptr,
+        //     0,
+        //     (SDL_GPUStorageBufferReadWriteBinding[]){
+        //         {
+        //             .buffer = instanceBuffer,
+        //         },
+        //         {
+        //             .buffer = visibilityBuffer,
+        //         },
+        //         {
+        //             .buffer = visibleCounterBuffer,
+        //         }
+        //     },
+        //     3
+        // );
+        // SDL_BindGPUComputePipeline(cullingPass, cullingPipeline);
+        // CameraInfo camInfo = {
+        //     .view = camera.GetViewMatrix(),
+        //     .proj = camera.GetProjMatrix()
+        // };
+        // SDL_PushGPUComputeUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+        // SDL_BindGPUComputeStorageBuffers(cullingPass, 0, &instanceBuffer, 1);
+        // // SDL_BindGPUComputeStorageBuffers(cullingPass, 1, &visibilityBuffer, 1);
+        // // SDL_BindGPUComputeStorageBuffers(cullingPass, 2, &visibleCounterBuffer, 1);
+        // SDL_DispatchGPUCompute(cullingPass, (instances.size() + 63) / 64, 1, 1);
+        // SDL_EndGPUComputePass(cullingPass);
 
-        // 3. command building pass
-        SDL_Log("Begin command building pass");
-        SDL_GPUComputePass* commandBuildingPass = SDL_BeginGPUComputePass(
-            cmd,
-            nullptr,
-            0,
-            (SDL_GPUStorageBufferReadWriteBinding[]){
-                {
-                    .buffer = instanceBuffer,
-                },
-                {
-                    .buffer = visibilityBuffer,
-                },
-                {
-                    .buffer = visibleCounterBuffer,
-                },
-                {
-                    .buffer = drawCommandBuffer,
-                }
-            },
-            4
-        );
-        SDL_BindGPUComputePipeline(commandBuildingPass, commandBuildingPipeline);
-        SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 0, &instanceBuffer, 1);
-        SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 1, &visibilityBuffer, 1);
-        SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 2, &visibleCounterBuffer, 1);
-        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 3, &drawCommandBuffer, 1);
-        SDL_DispatchGPUCompute(commandBuildingPass, (drawCommands.size() + 63) / 64, 1, 1);
-        SDL_EndGPUComputePass(commandBuildingPass);
+        // // 3. command building pass
+        // SDL_Log("Begin command building pass");
+        // SDL_GPUComputePass* commandBuildingPass = SDL_BeginGPUComputePass(
+        //     cmd,
+        //     nullptr,
+        //     0,
+        //     (SDL_GPUStorageBufferReadWriteBinding[]){
+        //         {
+        //             .buffer = instanceBuffer,
+        //         },
+        //         {
+        //             .buffer = visibilityBuffer,
+        //         },
+        //         {
+        //             .buffer = visibleCounterBuffer,
+        //         },
+        //         {
+        //             .buffer = meshBuffer,
+        //         },
+        //         {
+        //             .buffer = drawCommandBuffer,
+        //         }
+        //     },
+        //     5
+        // );
+        // SDL_BindGPUComputePipeline(commandBuildingPass, commandBuildingPipeline);
+        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 0, &instanceBuffer, 1);
+        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 1, &visibilityBuffer, 1);
+        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 2, &visibleCounterBuffer, 1);
+        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 3, &meshBuffer, 1);
+        // // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 4, &drawCommandBuffer, 1);
+        // SDL_DispatchGPUCompute(commandBuildingPass, (drawCommands.size() + 63) / 64, 1, 1);
+        // SDL_EndGPUComputePass(commandBuildingPass);
 
-        // 4. prefix sum pass
-        // TODO: reset the buffer every frame?
-        SDL_Log("Begin prefix sum pass");
-        SDL_GPUComputePass* prefixSumPass = SDL_BeginGPUComputePass(
-            cmd,
-            nullptr,
-            0,
-            (SDL_GPUStorageBufferReadWriteBinding[]){
-                {
-                    .buffer = drawCommandBuffer,
-                },
-                {
-                    .buffer = prefixSumBuffer,
-                }
-            },
-            2
-        );
-        SDL_BindGPUComputePipeline(prefixSumPass, prefixSumPipeline);
-        SDL_DispatchGPUCompute(prefixSumPass, 1, 1, 1);
-        SDL_EndGPUComputePass(prefixSumPass);
+        // // 4. prefix sum pass
+        // // TODO: reset the buffer every frame?
+        // SDL_Log("Begin prefix sum pass");
+        // SDL_GPUComputePass* prefixSumPass = SDL_BeginGPUComputePass(
+        //     cmd,
+        //     nullptr,
+        //     0,
+        //     (SDL_GPUStorageBufferReadWriteBinding[]){
+        //         {
+        //             .buffer = drawCommandBuffer,
+        //         },
+        //         {
+        //             .buffer = prefixSumBuffer,
+        //         }
+        //     },
+        //     2
+        // );
+        // SDL_BindGPUComputePipeline(prefixSumPass, prefixSumPipeline);
+        // SDL_DispatchGPUCompute(prefixSumPass, 1, 1, 1);
+        // SDL_EndGPUComputePass(prefixSumPass);
 
         // 5. screen pass
         SDL_Log("Begin screen pass");
@@ -997,11 +1041,11 @@ int main(int argc, char* args[]) {
                 SDL_PushGPUVertexUniformData(cmd, 1, &instance, sizeof(SimpleInstance));
 
                 simpleCube.Bind(renderPass);
-                if (simpleCube.has_indices()) {
-                    SDL_DrawGPUIndexedPrimitives(renderPass, simpleCube.index_count(), 1, 0, 0, 0);
-                } else {
-                    SDL_DrawGPUPrimitives(renderPass, simpleCube.vertex_count(), 1, 0, 0);
-                }
+                // if (simpleCube.has_indices()) {
+                //     SDL_DrawGPUIndexedPrimitives(renderPass, simpleCube.index_count(), 1, 0, 0, 0);
+                // } else {
+                //     SDL_DrawGPUPrimitives(renderPass, simpleCube.vertex_count(), 1, 0, 0);
+                // }
 
                 // Draw particles
                 SDL_BindGPUGraphicsPipeline(renderPass, particlePipeline);
@@ -1023,7 +1067,7 @@ int main(int argc, char* args[]) {
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
                 SDL_BindGPUVertexStorageBuffers(renderPass, 0, (SDL_GPUBuffer*[]){ instanceBuffer, meshBuffer, materialBuffer, vertexBuffer, indexBuffer }, 5);
                 SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
-
+                // SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, drawCommandBuffer, 0, drawCommands.size());
 
                 // Draw Sponza
                 // std::function<void(const std::shared_ptr<Node>&, const glm::mat4&)> drawNode =
@@ -1070,7 +1114,7 @@ int main(int argc, char* args[]) {
                 //             drawNode(child, localToWorldMatrix);
                 //         }
                 //     };
-                // for (const auto& node : sponzaScene->nodes) {
+                // for (const auto& node : sponza->nodes) {
                 //     drawNode(node, glm::scale(glm::mat4(1.0f), glm::vec3(100.0f)));
                 // }
             }

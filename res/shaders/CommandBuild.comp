@@ -8,11 +8,17 @@ struct Instance {
     uint materialID;
 };
 
+struct MeshInfo {
+    int baseVertex;
+    uint baseIndex;
+    uint indexCount;
+};
+
 struct DrawCommand {
-    uint count;
+    uint indexCount;
     uint instanceCount;
     uint firstIndex;
-    uint baseVertex;
+    int baseVertex;
     uint baseInstance;
 };
 
@@ -28,6 +34,10 @@ layout(std430, set = 0, binding = 2) coherent buffer CounterBuffer {
     uint visibleCount;
 };
 
+layout(std430, set = 0, binding = 3) readonly buffer MeshBuffer {
+    MeshInfo meshInfos[];
+};
+
 layout(std430, set = 1, binding = 0) buffer CommandBuffer {
     DrawCommand commands[];
 };
@@ -40,8 +50,11 @@ void main() {
     uint meshID = instances[id].meshID;
     // uint materialID = instances[id].materialID;
     // uint commandIndex = meshID * 100 + materialID; // You can't do this
-    uint commandIndex = meshID;
-    atomicAdd(commands[commandIndex].instanceCount, 1);
+    uint commandId = meshID;
+    commands[commandId].indexCount = meshInfos[meshID].indexCount;
+    commands[commandId].baseVertex = meshInfos[meshID].baseVertex;
+    commands[commandId].firstIndex = meshInfos[meshID].baseIndex;
+    atomicAdd(commands[commandId].instanceCount, 1);
     // TODO:  ensure this is correct
     for (uint i = meshID + 1; i < commands.length(); i++) {
         atomicAdd(commands[i].baseInstance, 1);

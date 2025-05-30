@@ -2,13 +2,24 @@
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout(set = 2, binding = 0) uniform UBO {
-    // float time;
+    float time;
     float deltaTime;
+    vec2 resolution;
+    vec2 mousePosition;
 };
 
+struct Attractor {
+    vec3 position;
+    float strength;
+};
+
+// layout(std140, set = 2, binding = 1) uniform AttractorBuffer {
+//     Attractor attractors[];
+// };
+
 struct Particle {
-    vec2 position;
-    vec2 velocity;
+    vec3 position;
+    vec3 velocity;
     vec4 color;
 };
 
@@ -28,7 +39,7 @@ void main() {
     // }
 
     Particle p = particles[id];
-    p.velocity += vec2(-p.velocity.y, p.velocity.x) * deltaTime * 0.2f;
+    p.velocity += vec3(-p.velocity.y, p.velocity.x, 0.0) * deltaTime * 0.2f;
     p.position += p.velocity * deltaTime * 0.1f;
 
     particles2[id] = p;

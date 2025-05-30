@@ -17,7 +17,7 @@ struct Instance {
 };
 
 struct MeshInfo {
-    uint baseVertex;
+    int baseVertex;
     uint baseIndex;
     uint indexCount;
 };

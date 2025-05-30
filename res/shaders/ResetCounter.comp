@@ -2,10 +2,10 @@
 
 layout(local_size_x = 1) in;
 
-layout(std430, set = 1, binding = 0) buffer CounterBuffer {
-    uint counter;
+layout(std430, set = 1, binding = 0) coherent buffer CounterBuffer {
+    uint visibleCount;
 };
 
 void main() {
-    counter = 0;
+    visibleCount = 0;
 }
