@@ -1,0 +1,35 @@
+#version 450
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std140, set = 2, binding = 0) uniform UBO {
+    vec2 resolution;
+    vec2 mousePosition;
+    float time;
+    float deltaTime;
+};
+
+struct Particle {
+    vec3 position;
+    vec3 velocity;
+    vec3 force;
+    vec4 color;
+};
+
+layout(std140, set = 1, binding = 0) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    // TODO: bound checking
+    // if (id >= particles.length()) {
+    //     return;
+    // }
+
+    Particle p = particles[id];
+    p.velocity += vec3(-p.velocity.y, p.velocity.x, 0.0) * deltaTime * 0.2f;
+    p.position += p.velocity * deltaTime * 0.1f;
+
+    particles[id].position = p.position;
+    particles[id].velocity = p.velocity;
+}

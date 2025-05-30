@@ -8,27 +8,15 @@ layout(std140, set = 2, binding = 0) uniform UBO {
     float deltaTime;
 };
 
-struct Attractor {
-    vec3 position;
-    float strength;
-};
-
-// layout(std140, set = 2, binding = 1) uniform AttractorBuffer {
-//     Attractor attractors[];
-// };
-
 struct Particle {
     vec3 position;
     vec3 velocity;
+    vec3 force;
     vec4 color;
 };
 
 layout(std140, set = 1, binding = 0) buffer ParticleBuffer {
     Particle particles[];
-};
-
-layout(std140, set = 1, binding = 1) buffer ParticleBuffer2 {
-    Particle particles2[];
 };
 
 void main() {
@@ -39,8 +27,9 @@ void main() {
     // }
 
     Particle p = particles[id];
-    p.velocity += vec3(-p.velocity.y, p.velocity.x, 0.0) * deltaTime * 0.2f;
-    p.position += p.velocity * deltaTime * 0.1f;
+    p.velocity += p.force * deltaTime;
+    // p.velocity += vec3(-p.velocity.y, p.velocity.x, 0.0) * deltaTime * 0.2f;
+    p.position += p.velocity * deltaTime * 0.1;
 
-    particles2[id] = p;
+    particles[id] = p;
 }

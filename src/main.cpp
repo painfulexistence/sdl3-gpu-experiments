@@ -69,6 +69,7 @@ struct MaterialInfo {
 struct Particle {
     alignas(16) glm::vec3 position;
     alignas(16) glm::vec3 velocity;
+    alignas(16) glm::vec3 force;
     glm::vec4 color;
 };
 
@@ -149,10 +150,22 @@ int main(int argc, char* args[]) {
         0, 1, 0, 0, 0, 1, 16, 16, 1
     );
 
-    SDL_GPUComputePipeline* particleSimulationPipeline = CreateComputePipelineFromShader(
+    SDL_GPUComputePipeline* particleSingleBufferPipeline = CreateComputePipelineFromShader(
 	    device,
-	    "Particle.comp",
-        0, 1, 0, 0, 2, 0, 256, 1, 1
+	    "ParticleSingleBuffer.comp",
+        0, 1, 0, 0, 1, 0, 256, 1, 1
+    );
+
+    SDL_GPUComputePipeline* particleForcePipeline = CreateComputePipelineFromShader(
+	    device,
+	    "ParticleForce.comp",
+        0, 2, 0, 0, 1, 0, 256, 1, 1
+    );
+
+    SDL_GPUComputePipeline* particleIntegratePipeline = CreateComputePipelineFromShader(
+	    device,
+	    "ParticleIntegrate.comp",
+        0, 2, 0, 0, 1, 0, 256, 1, 1
     );
 
     SDL_GPUComputePipeline* cullingPipeline = CreateComputePipelineFromShader(
@@ -780,10 +793,10 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUTransferBuffer(device, particleTransferBuffer);
 
     Camera camera(
-        glm::vec3(0.0f, 0.0f, -3.0f),
+        glm::vec3(0.0f, 0.0f, -5.0f),
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
-        glm::radians(45.0f),
+        glm::radians(120.0f),
         windowWidth / (float)windowHeight,
         0.1f,
         500.0f
@@ -859,6 +872,20 @@ int main(int argc, char* args[]) {
             .deltaTime = deltaTime,
             .mousePosition = glm::vec2(mouseX, mouseY)
         };
+        CameraInfo camInfo = {
+            .view = camera.GetViewMatrix(),
+            .proj = camera.GetProjMatrix()
+        };
+
+        glm::vec2 uv = shaderParams.mousePosition / shaderParams.resolution;
+        glm::vec3 ndc = glm::vec3(uv.x, uv.y, 1.0) * 2.0f - 1.0f;
+        ndc.y = -ndc.y;
+        glm::vec4 viewPosH = glm::inverse(camInfo.proj) * glm::vec4(ndc, 1.0);
+        glm::vec3 viewPos = glm::vec3(viewPosH) / viewPosH.w;
+        glm::vec3 worldPos = glm::vec3(glm::inverse(camInfo.view) * glm::vec4(viewPos, 1.0));
+        glm::vec3 ro = camera.GetEye();
+        glm::vec3 rd = glm::normalize(worldPos - ro);
+        glm::vec3 attractorPos = ro + rd * 5.0f;
 
         SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
         if (cmd == NULL) {
@@ -885,24 +912,55 @@ int main(int argc, char* args[]) {
 
         SDL_GenerateMipmapsForGPUTexture(cmd, procTexture);
 
-        SDL_GPUComputePass* particlePass = SDL_BeginGPUComputePass(
+        // SDL_GPUComputePass* particleSingleBufferPass = SDL_BeginGPUComputePass(
+        //     cmd,
+        //     nullptr,
+        //     0,
+        //     (SDL_GPUStorageBufferReadWriteBinding[]){
+        //         {
+        //             .buffer = particleBuffer0,
+        //         },
+        //     },
+        //     1
+        // );
+        // SDL_BindGPUComputePipeline(particleSingleBufferPass, particleSingleBufferPipeline);
+        // SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
+        // SDL_DispatchGPUCompute(particleSingleBufferPass, (particles.size() + 255) / 256, 1, 1);
+        // SDL_EndGPUComputePass(particleSingleBufferPass);
+
+        SDL_GPUComputePass* particleForcePass = SDL_BeginGPUComputePass(
             cmd,
             nullptr,
             0,
             (SDL_GPUStorageBufferReadWriteBinding[]){
                 {
-                    .buffer = frameCount % 2 == 0 ? particleBuffer0 : particleBuffer1,
-                },
-                {
-                    .buffer = frameCount % 2 == 0 ? particleBuffer1 : particleBuffer0,
+                    .buffer = particleBuffer0,
                 }
             },
-            2
+            1
         );
-        SDL_BindGPUComputePipeline(particlePass, particleSimulationPipeline);
+        SDL_BindGPUComputePipeline(particleForcePass, particleForcePipeline);
         SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
-        SDL_DispatchGPUCompute(particlePass, (particles.size() + 255) / 256, 1, 1);
-        SDL_EndGPUComputePass(particlePass);
+        SDL_PushGPUComputeUniformData(cmd, 1, &attractorPos, sizeof(glm::vec3));
+        SDL_DispatchGPUCompute(particleForcePass, (particles.size() + 255) / 256, 1, 1);
+        SDL_EndGPUComputePass(particleForcePass);
+
+        SDL_GPUComputePass* particleIntegratePass = SDL_BeginGPUComputePass(
+            cmd,
+            nullptr,
+            0,
+            (SDL_GPUStorageBufferReadWriteBinding[]){
+                {
+                    .buffer = particleBuffer0,
+                }
+            },
+            1
+        );
+        SDL_BindGPUComputePipeline(particleIntegratePass, particleIntegratePipeline);
+        SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
+        SDL_PushGPUComputeUniformData(cmd, 1, &attractorPos, sizeof(glm::vec3));
+        SDL_DispatchGPUCompute(particleIntegratePass, (particles.size() + 255) / 256, 1, 1);
+        SDL_EndGPUComputePass(particleIntegratePass);
 
         // //TODO: zero out the counter buffer
         // SDL_Log("Begin reset counter pass");
@@ -1032,10 +1090,6 @@ int main(int argc, char* args[]) {
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
                 SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
                 float angle = time * 0.5f;
-                CameraInfo camInfo = {
-                    .view = camera.GetViewMatrix(),
-                    .proj = camera.GetProjMatrix()
-                };
                 auto instance = simpleCubeInstances[0];
                 instance.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
@@ -1051,7 +1105,7 @@ int main(int argc, char* args[]) {
                 // Draw particles
                 SDL_BindGPUGraphicsPipeline(renderPass, particlePipeline);
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
-                SDL_BindGPUVertexStorageBuffers(renderPass, 0, &(frameCount % 2 == 0 ? particleBuffer0 : particleBuffer1), 1);
+                SDL_BindGPUVertexStorageBuffers(renderPass, 0, &particleBuffer0, 1);
                 quad.Bind(renderPass);
                 if (quad.has_indices()) {
                     SDL_DrawGPUIndexedPrimitives(renderPass, quad.index_count(), particles.size(), 0, 0, 0);
@@ -1157,7 +1211,9 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUBuffer(device, particleBuffer1);
 
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
-    SDL_ReleaseGPUComputePipeline(device, particleSimulationPipeline);
+    SDL_ReleaseGPUComputePipeline(device, particleForcePipeline);
+    SDL_ReleaseGPUComputePipeline(device, particleIntegratePipeline);
+    SDL_ReleaseGPUComputePipeline(device, particleSingleBufferPipeline);
     SDL_ReleaseGPUComputePipeline(device, resetCounterPipeline);
     SDL_ReleaseGPUComputePipeline(device, cullingPipeline);
     SDL_ReleaseGPUComputePipeline(device, commandBuildingPipeline);

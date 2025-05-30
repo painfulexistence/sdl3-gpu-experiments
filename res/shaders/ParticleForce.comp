@@ -1,0 +1,47 @@
+#version 450
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(std140, set = 2, binding = 0) uniform UBO {
+    vec2 resolution;
+    vec2 mousePosition;
+    float time;
+    float deltaTime;
+};
+
+layout(std140, set = 2, binding = 1) uniform AttractorBuffer {
+    vec3 attractorPos;
+};
+
+struct Particle {
+    vec3 position;
+    vec3 velocity;
+    vec3 force;
+    vec4 color;
+};
+
+layout(std140, set = 1, binding = 0) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+vec3 calculateAttractorForce(vec3 pos, vec3 attractorPos) {
+    vec3 attractorDir = attractorPos - pos;
+    // float dist = length(attractorDir);
+    // float strength = 1.0f / (dist * dist) * 10.0;
+    float strength = 1.0f / dot(attractorDir, attractorDir) * 50.0;
+    return normalize(attractorDir) * strength;
+}
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    // TODO: bound checking
+    // if (id >= particles.length()) {
+    //     return;
+    // }
+
+    // vec2 uv = vec2(mousePosition.x / resolution.x, mousePosition.y / resolution.y);
+    // vec3 ndc = vec3(uv.x, uv.y, 1.0)* 2.0f - 1.0f;
+    // vec3 view_pos_h = inverse(proj) * vec4(ndc, 1.0);
+    // vec3 view_pos = view_pos_h.xyz / view_pos_h.w;
+    Particle p = particles[id];
+    particles[id].force = calculateAttractorForce(p.position, attractorPos);
+}

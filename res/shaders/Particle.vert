@@ -14,6 +14,7 @@ layout(set = 1, binding = 0) uniform CameraInfo {
 struct Particle {
     vec3 position;
     vec3 velocity;
+    vec3 force;
     vec4 color;
 };
 
@@ -23,7 +24,8 @@ layout(std140, set = 0, binding = 0) readonly buffer ParticleBuffer {
 
 void main() {
     Particle particle = particles[gl_InstanceIndex];
-    gl_Position = vec4(0.005 * pos + vec3(particle.position), 1.0);
+    // FIXME: seems not so correct
+    gl_Position = vec4(0.005 * pos + (proj* view * vec4(particle.position, 1.0)).xyz, 1.0);
     frag_color = particle.color.rgb;
     tex_uv = uv;
 }
