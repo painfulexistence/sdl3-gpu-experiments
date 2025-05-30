@@ -2,8 +2,11 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(set = 1, binding = 0, rgba8) uniform writeonly image2D outImage;
-layout(set = 2, binding = 0) uniform UBO {
+layout(std140, set = 2, binding = 0) uniform UBO {
+    vec2 resolution;
+    vec2 mousePosition;
     float time;
+    float deltaTime;
 };
 
 const float kAnimationFrequency = 0.01;

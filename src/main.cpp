@@ -52,8 +52,8 @@ struct MaterialInfo {
     // Uint8 normalMap;
     // Uint8 metallicRoughnessMap;
     // Uint8 aoMap;
-    glm::vec3 diffuse;
-    glm::vec3 specular;
+    alignas(16) glm::vec3 diffuse;
+    alignas(16) glm::vec3 specular;
     float roughness;
 };
 
@@ -67,16 +67,17 @@ struct MaterialInfo {
 // };
 
 struct Particle {
-    glm::vec3 position;
-    glm::vec3 velocity;
+    alignas(16) glm::vec3 position;
+    alignas(16) glm::vec3 velocity;
     glm::vec4 color;
 };
 
+// TODO: unsure about alignment
 struct ShaderParams {
-    float time;
-    float deltaTime;
     glm::vec2 resolution;
     glm::vec2 mousePosition;
+    float time;
+    float deltaTime;
 };
 
 int windowWidth, windowHeight;
