@@ -24,8 +24,10 @@ layout(std140, set = 0, binding = 0) readonly buffer ParticleBuffer {
 
 void main() {
     Particle particle = particles[gl_InstanceIndex];
-    // FIXME: seems not so correct
-    gl_Position = vec4(0.005 * pos + (proj* view * vec4(particle.position, 1.0)).xyz, 1.0);
+    vec3 right = vec3(view[0][0], view[1][0], view[2][0]);
+    vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
+    vec3 vert_pos = particle.position + right * pos.x * 0.05 + up * pos.y * 0.05;
+    gl_Position = proj * view * vec4(vert_pos, 1.0);
     frag_color = particle.color.rgb;
     tex_uv = uv;
 }
