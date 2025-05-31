@@ -372,7 +372,7 @@ int main(int argc, char* args[]) {
     });
     auto quad = CPUMesh::CreateQuad();
 
-    constexpr Uint32 numParticles = 1000000;
+    constexpr Uint32 numParticles = 2000000;
     std::vector<Particle> particles(numParticles);
     for (auto& particle : particles) {
         float r = sqrt(rng.RandomFloat()) * 0.1f;
@@ -386,10 +386,14 @@ int main(int argc, char* args[]) {
         particle.velocity = tangent * (0.2f / (r + 0.025f)) * 0.25f;
 
         float brightness = 1.0f - (r / 1.0f);
-        glm::vec3 a = glm::vec3(0.746, 0.815, 0.846);
-        glm::vec3 b = glm::vec3(0.195, 0.283, 0.187);
-        glm::vec3 c = glm::vec3(1.093, 1.417, 1.405);
-        glm::vec3 d = glm::vec3(5.435, 2.400, 5.741);
+        // glm::vec3 a = glm::vec3(0.746, 0.815, 0.846);
+        // glm::vec3 b = glm::vec3(0.195, 0.283, 0.187);
+        // glm::vec3 c = glm::vec3(1.093, 1.417, 1.405);
+        // glm::vec3 d = glm::vec3(5.435, 2.400, 5.741);
+        glm::vec3 a = glm::vec3(0.427, 0.346, 0.372);
+        glm::vec3 b = glm::vec3(0.288, 0.918, 0.336);
+        glm::vec3 c = glm::vec3(0.635, 1.136, 0.404);
+        glm::vec3 d = glm::vec3(1.893, 0.663, 1.910);
         particle.color = glm::vec4(a + b * glm::cos(6.28318f * (c * brightness + d)), 1.0f);
     }
 
