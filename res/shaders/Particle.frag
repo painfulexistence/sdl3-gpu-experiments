@@ -7,6 +7,9 @@ layout(location = 0) out vec4 color;
 
 // layout(set = 2, binding = 0) uniform sampler2D tex;
 
+
+const float ALPHA_THRESHOLD = 0.5;
+
 void main() {
     vec2 center = vec2(0.5, 0.5);
     float dist = length(tex_uv - center);
@@ -21,6 +24,9 @@ void main() {
 
     alpha = alpha + glow * 0.3 + ring * 0.5;
     alpha = clamp(alpha, 0.0, 1.0);
+    if (alpha < ALPHA_THRESHOLD) {
+        discard;
+    }
 
     color = vec4(frag_color, alpha);
 }

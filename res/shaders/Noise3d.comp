@@ -1,0 +1,102 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout(set = 1, binding = 0, r8) uniform writeonly image2DArray outImage[];
+layout(std140, set = 2, binding = 0) uniform UBO {
+    vec2 resolution;
+    vec2 mousePosition;
+    float time;
+    float deltaTime;
+};
+
+float hash(vec3 p) {
+    p = fract(p * .1031);
+    p += dot(p, p.zyx + 31.32);
+    return fract((p.x + p.y) * p.z);
+}
+
+float noise3d(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+
+    float va = hash(i + vec3(0.0, 0.0, 0.0));
+    float vb = hash(i + vec3(1.0, 0.0, 0.0));
+    float vc = hash(i + vec3(0.0, 1.0, 0.0));
+    float vd = hash(i + vec3(1.0, 1.0, 0.0));
+    float ve = hash(i + vec3(0.0, 0.0, 1.0));
+    float vf = hash(i + vec3(1.0, 0.0, 1.0));
+    float vg = hash(i + vec3(0.0, 1.0, 1.0));
+    float vh = hash(i + vec3(1.0, 1.0, 1.0));
+
+    vec3 u = f * f * (3.0 - 2.0 * f);
+
+    float lerpx1 = mix(va, vb, u.x);
+    float lerpx2 = mix(vc, vd, u.x);
+    float lerpy1 = mix(lerpx1, lerpx2, u.y);
+
+    float lerpx3 = mix(ve, vf, u.x);
+    float lerpx4 = mix(vg, vh, u.x);
+    float lerpy2 = mix(lerpx3, lerpx4, u.y);
+
+    return mix(lerpy1, lerpy2, u.z);
+}
+
+vec3 hash3(vec3 p) {
+    p = fract(p * vec3(.1031, .1030, .0973));
+    p += dot(p, p.yxz + 31.32);
+    p = fract((p.xxy + p.yxx)*p.zyx) + time * 0.01;
+
+    return normalize(2.0 * p - 1.0);
+}
+
+float perlin3d(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+
+    vec3 ga = hash3(i + vec3(0.0, 0.0, 0.0));
+    vec3 gb = hash3(i + vec3(1.0, 0.0, 0.0));
+    vec3 gc = hash3(i + vec3(0.0, 1.0, 0.0));
+    vec3 gd = hash3(i + vec3(1.0, 1.0, 0.0));
+    vec3 ge = hash3(i + vec3(0.0, 0.0, 1.0));
+    vec3 gf = hash3(i + vec3(1.0, 0.0, 1.0));
+    vec3 gg = hash3(i + vec3(0.0, 1.0, 1.0));
+    vec3 gh = hash3(i + vec3(1.0, 1.0, 1.0));
+
+    vec3 va = f - vec3(0.0, 0.0, 0.0);
+    vec3 vb = f - vec3(1.0, 0.0, 0.0);
+    vec3 vc = f - vec3(0.0, 1.0, 0.0);
+    vec3 vd = f - vec3(1.0, 1.0, 0.0);
+    vec3 ve = f - vec3(0.0, 0.0, 1.0);
+    vec3 vf = f - vec3(1.0, 0.0, 1.0);
+    vec3 vg = f - vec3(0.0, 1.0, 1.0);
+    vec3 vh = f - vec3(1.0, 1.0, 1.0);
+
+    float da = dot(ga, va);
+    float db = dot(gb, vb);
+    float dc = dot(gc, vc);
+    float dd = dot(gd, vd);
+    float de = dot(ge, ve);
+    float df = dot(gf, vf);
+    float dg = dot(gg, vg);
+    float dh = dot(gh, vh);
+
+    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    float lerpx1 = mix(da, db, u.x);
+    float lerpx2 = mix(dc, dd, u.x);
+    float lerpy1 = mix(lerpx1, lerpx2, u.y);
+
+    float lerpx3 = mix(de, df, u.x);
+    float lerpx4 = mix(dg, dh, u.x);
+    float lerpy2 = mix(lerpx3, lerpx4, u.y);
+
+    return mix(lerpy1, lerpy2, u.z) * 0.5 + 0.5;
+}
+
+void main() {
+    ivec3 coord = ivec3(gl_GlobalInvocationID);
+    // vec3 uvw = vec3(coord) / vec3(imageSize(outImage[0]));
+    // float n = perlin3d(uvw * 8.0);
+    // imageStore(outImage[coord.z], coord.xyz, vec4(n));
+}

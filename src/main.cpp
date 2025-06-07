@@ -81,6 +81,10 @@ struct ShaderParams {
     float deltaTime;
 };
 
+struct TonemapParams {
+    float exposure;
+};
+
 int windowWidth, windowHeight;
 
 int main(int argc, char* args[]) {
@@ -130,6 +134,18 @@ int main(int argc, char* args[]) {
 		return -1;
 	}
 
+    SDL_GPUShader* pbrVertexShader = LoadShader(device, "TBN.vert", 0, 2, 0, 0);
+	if (pbrVertexShader == NULL) {
+		SDL_Log("Failed to create vertex shader!");
+		return -1;
+	}
+
+    SDL_GPUShader* pbrFragmentShader = LoadShader(device, "PBR.frag", 5, 0, 0, 0);
+	if (pbrFragmentShader == NULL) {
+		SDL_Log("Failed to create fragment shader!");
+		return -1;
+	}
+
     SDL_GPUShader* particleVertexShader = LoadShader(device, "Particle.vert", 0, 1, 1, 0);
 	if (particleVertexShader == NULL) {
 		SDL_Log("Failed to create vertex shader!");
@@ -142,12 +158,30 @@ int main(int argc, char* args[]) {
 		return -1;
 	}
 
+    SDL_GPUShader* tonemapVertexShader = LoadShader(device, "Tonemap.vert", 0, 0, 0, 0);
+	if (tonemapVertexShader == NULL) {
+		SDL_Log("Failed to create vertex shader!");
+		return -1;
+	}
+
+    SDL_GPUShader* tonemapFragmentShader = LoadShader(device, "Tonemap.frag", 1, 1, 0, 0);
+	if (tonemapFragmentShader == NULL) {
+		SDL_Log("Failed to create fragment shader!");
+		return -1;
+	}
+
     // Create compute pipelines
     SDL_Log("Create compute pipelines");
     SDL_GPUComputePipeline* procTexturePipeline = CreateComputePipelineFromShader(
 	    device,
 	    "Mandelbrot.comp",
         0, 1, 0, 0, 0, 1, 16, 16, 1
+    );
+
+    SDL_GPUComputePipeline* noiseTexturePipeline = CreateComputePipelineFromShader(
+	    device,
+	    "Noise3d.comp",
+        0, 1, 0, 0, 0, 1, 8, 8, 8
     );
 
     SDL_GPUComputePipeline* particleSingleBufferPipeline = CreateComputePipelineFromShader(
@@ -159,7 +193,7 @@ int main(int argc, char* args[]) {
     SDL_GPUComputePipeline* particleForcePipeline = CreateComputePipelineFromShader(
 	    device,
 	    "ParticleForce.comp",
-        0, 2, 0, 0, 1, 0, 256, 1, 1
+        0, 3, 0, 0, 1, 0, 256, 1, 1
     );
 
     SDL_GPUComputePipeline* particleIntegratePipeline = CreateComputePipelineFromShader(
@@ -194,9 +228,11 @@ int main(int argc, char* args[]) {
 
     // Create gfx pipelines
     SDL_Log("Create gfx pipelines");
-    SDL_GPUTextureFormat renderTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
+    SDL_GPUTextureFormat colorTargetFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+    SDL_GPUTextureFormat depthTargetFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    SDL_GPUTextureFormat swapchainImageFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
     SDL_GPUSampleCount msaaSampleCount = SDL_GPU_SAMPLECOUNT_4;
-    if (!SDL_GPUTextureSupportsSampleCount(device, renderTargetFormat, msaaSampleCount)) {
+    if (!SDL_GPUTextureSupportsSampleCount(device, colorTargetFormat, msaaSampleCount)) {
 		SDL_Log("Sample count %d is not supported", (1 << static_cast<int>(msaaSampleCount)));
         msaaSampleCount = SDL_GPU_SAMPLECOUNT_4;
 	}
@@ -251,6 +287,58 @@ int main(int argc, char* args[]) {
             .offset = sizeof(float) * 6
         }
     }};
+    std::array<SDL_GPUVertexBufferDescription, 4> gltfVertexBufferDescs = {{
+        {
+            .slot = 0,
+            .pitch = sizeof(glm::vec3),
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0,
+        },
+        {
+            .slot = 1,
+            .pitch = sizeof(glm::vec2),
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0,
+        },
+        {
+            .slot = 2,
+            .pitch = sizeof(glm::vec3),
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0,
+        },
+        {
+            .slot = 3,
+            .pitch = sizeof(glm::vec3),
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0,
+        },
+    }};
+    std::array<SDL_GPUVertexAttribute, 4> gltfVertexAttributes = {{
+        {
+            .location = 0,
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = 0,
+        },
+        {
+            .location = 1,
+            .buffer_slot = 1,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+            .offset = 0,
+        },
+        {
+            .location = 2,
+            .buffer_slot = 2,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = 0,
+        },
+        {
+            .location = 3,
+            .buffer_slot = 3,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = 0,
+        },
+    }};
 	SDL_GPUGraphicsPipelineCreateInfo gfxPipelineDesc = {
         .vertex_shader = simpleVertexShader,
 		.fragment_shader = simpleFragmentShader,
@@ -263,25 +351,26 @@ int main(int argc, char* args[]) {
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
             .cull_mode = SDL_GPU_CULLMODE_BACK,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
         },
         .multisample_state = {
             .sample_count = msaaSampleCount
         },
         .target_info = {
-			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
-				.format = renderTargetFormat,
-                .blend_state = {
-				    .enable_blend = true,
-					.alpha_blend_op = SDL_GPU_BLENDOP_ADD,
-					.color_blend_op = SDL_GPU_BLENDOP_ADD,
-					.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
-					.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
-					.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
-					.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE
-				}
-			}},
+			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){
+                {
+				    .format = colorTargetFormat,
+			    }
+            },
             .num_color_targets = 1,
+            .has_depth_stencil_target = true,
+            .depth_stencil_format = depthTargetFormat,
 		},
+        .depth_stencil_state = {
+            .enable_depth_test = true,
+            .enable_depth_write = true,
+            .compare_op = SDL_GPU_COMPAREOP_LESS,
+        }
 	};
 	gfxPipelineDesc.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
 	SDL_GPUGraphicsPipeline* fillPipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
@@ -296,13 +385,6 @@ int main(int argc, char* args[]) {
 		return -1;
 	}
     gfxPipelineDesc.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-    gfxPipelineDesc.vertex_shader = particleVertexShader;
-    gfxPipelineDesc.fragment_shader = particleFragmentShader;
-    SDL_GPUGraphicsPipeline* particlePipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
-    if (particlePipeline == NULL) {
-        SDL_Log("Failed to create particle pipeline!");
-        return -1;
-    }
     gfxPipelineDesc.vertex_shader = uberVertexShader;
     gfxPipelineDesc.fragment_shader = uberFragmentShader;
     gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
@@ -316,10 +398,98 @@ int main(int argc, char* args[]) {
         SDL_Log("Failed to create uber pipeline!");
         return -1;
     }
+    gfxPipelineDesc.vertex_shader = pbrVertexShader;
+    gfxPipelineDesc.fragment_shader = pbrFragmentShader;
+    gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
+        .vertex_buffer_descriptions = gltfVertexBufferDescs.data(),
+        .num_vertex_buffers = static_cast<Uint32>(gltfVertexBufferDescs.size()),
+        .vertex_attributes = gltfVertexAttributes.data(),
+        .num_vertex_attributes = static_cast<Uint32>(gltfVertexAttributes.size()),
+    };
+    gfxPipelineDesc.rasterizer_state.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
+    SDL_GPUGraphicsPipeline* pbrPipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
+    if (pbrPipeline == NULL) {
+        SDL_Log("Failed to create pbr pipeline!");
+        return -1;
+    }
+    gfxPipelineDesc.vertex_shader = particleVertexShader;
+    gfxPipelineDesc.fragment_shader = particleFragmentShader;
+    gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
+		.vertex_buffer_descriptions = simpleVertexBufferDescs.data(),
+        .num_vertex_buffers = static_cast<Uint32>(simpleVertexBufferDescs.size()),
+		.vertex_attributes = simpleVertexAttributes.data(),
+        .num_vertex_attributes = static_cast<Uint32>(simpleVertexAttributes.size()),
+	};
+    gfxPipelineDesc.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    gfxPipelineDesc.target_info = {
+        .color_target_descriptions = (SDL_GPUColorTargetDescription[]){
+            {
+                .format = colorTargetFormat,
+                .blend_state = {
+                    .enable_blend = true,
+                    .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+                    .color_blend_op = SDL_GPU_BLENDOP_ADD,
+                    .src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+                    .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+                    .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_COLOR,
+                    .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO
+                }
+            }
+        },
+        .num_color_targets = 1,
+        .has_depth_stencil_target = true,
+        .depth_stencil_format = depthTargetFormat,
+    };
+    gfxPipelineDesc.depth_stencil_state = {
+        .enable_depth_test = true,
+        .enable_depth_write = false,
+        .compare_op = SDL_GPU_COMPAREOP_LESS,
+    };
+    SDL_GPUGraphicsPipeline* particlePipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
+    if (particlePipeline == NULL) {
+        SDL_Log("Failed to create particle pipeline!");
+        return -1;
+    }
+
+    SDL_GPUGraphicsPipelineCreateInfo tonemapPipelineDesc = {
+        .vertex_shader = tonemapVertexShader,
+		.fragment_shader = tonemapFragmentShader,
+        .vertex_input_state = (SDL_GPUVertexInputState){
+			.vertex_buffer_descriptions = nullptr,
+            .num_vertex_buffers = 0,
+			.vertex_attributes = nullptr,
+            .num_vertex_attributes = 0,
+		},
+        .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = {
+            .cull_mode = SDL_GPU_CULLMODE_BACK,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+            .fill_mode = SDL_GPU_FILLMODE_FILL
+        },
+        .multisample_state = {
+            .sample_count = SDL_GPU_SAMPLECOUNT_1
+        },
+        .target_info = {
+			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
+				.format = swapchainImageFormat,
+			}},
+            .num_color_targets = 1,
+		},
+    };
+    SDL_GPUGraphicsPipeline* tonemapPipeline = SDL_CreateGPUGraphicsPipeline(device, &tonemapPipelineDesc);
+    if (tonemapPipeline == NULL) {
+        SDL_Log("Failed to create tonemap pipeline!");
+        return -1;
+    }
+
 	SDL_ReleaseGPUShader(device, simpleVertexShader);
 	SDL_ReleaseGPUShader(device, simpleFragmentShader);
 	SDL_ReleaseGPUShader(device, uberVertexShader);
 	SDL_ReleaseGPUShader(device, uberFragmentShader);
+    SDL_ReleaseGPUShader(device, pbrVertexShader);
+    SDL_ReleaseGPUShader(device, pbrFragmentShader);
+	SDL_ReleaseGPUShader(device, tonemapVertexShader);
+	SDL_ReleaseGPUShader(device, tonemapFragmentShader);
 	SDL_ReleaseGPUShader(device, particleVertexShader);
 	SDL_ReleaseGPUShader(device, particleFragmentShader);
 
@@ -348,6 +518,19 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUTexture* procTexture = SDL_CreateGPUTexture(device, &procTextureCreateInfo);
 
+    int noiseTextureSize = 64;
+    SDL_GPUTextureCreateInfo noiseTextureCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D_ARRAY, // Image3D is not supported on MoltenVK
+        .format = SDL_GPU_TEXTUREFORMAT_R8_UNORM,
+        .usage = SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        .width = static_cast<uint32_t>(noiseTextureSize),
+        .height = static_cast<uint32_t>(noiseTextureSize),
+        .layer_count_or_depth = static_cast<uint32_t>(noiseTextureSize),
+        .num_levels = static_cast<Uint32>(std::floor(std::log2(noiseTextureSize))),
+    };
+    SDL_GPUTexture* noiseTexture = SDL_CreateGPUTexture(device, &noiseTextureCreateInfo);
+
+
     SDL_GPUSamplerCreateInfo samplerCreateInfo = {
         .min_filter = SDL_GPU_FILTER_LINEAR,
         .mag_filter = SDL_GPU_FILTER_LINEAR,
@@ -362,8 +545,9 @@ int main(int argc, char* args[]) {
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
     // Load scene
-    // std::shared_ptr<Scene> sponza = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
+    std::shared_ptr<Scene> sponza = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
     // sponza->Print();
+    sponza->Upload(device);
     auto simpleCube = CPUMesh::CreateCube();
     auto simpleCubeInstances = std::vector<SimpleInstance>({
         {
@@ -471,7 +655,7 @@ int main(int argc, char* args[]) {
     SDL_Log("Create render targets");
     SDL_GPUTextureCreateInfo msaaTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
-        .format = renderTargetFormat,
+        .format = colorTargetFormat,
         .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
         .width = static_cast<uint32_t>(windowWidth),
         .height = static_cast<uint32_t>(windowHeight),
@@ -481,9 +665,21 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUTexture* msaaTexture = SDL_CreateGPUTexture(device, &msaaTextureCreateInfo);
 
+    SDL_GPUTextureCreateInfo depthTextureCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = depthTargetFormat,
+        .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+        .width = static_cast<uint32_t>(windowWidth),
+        .height = static_cast<uint32_t>(windowHeight),
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+        .sample_count = msaaSampleCount,
+    };
+    SDL_GPUTexture* depthTexture = SDL_CreateGPUTexture(device, &depthTextureCreateInfo);
+
     SDL_GPUTextureCreateInfo resolveTextureCreateInfo = {
         .type = SDL_GPU_TEXTURETYPE_2D,
-        .format = renderTargetFormat,
+        .format = colorTargetFormat,
         .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
         .width = static_cast<uint32_t>(windowWidth),
         .height = static_cast<uint32_t>(windowHeight),
@@ -491,6 +687,17 @@ int main(int argc, char* args[]) {
         .num_levels = 1,
     };
     SDL_GPUTexture* resolveTexture = SDL_CreateGPUTexture(device, &resolveTextureCreateInfo);
+
+    SDL_GPUTextureCreateInfo tonemappedTextureCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = swapchainImageFormat,
+        .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        .width = static_cast<uint32_t>(windowWidth),
+        .height = static_cast<uint32_t>(windowHeight),
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+    };
+    SDL_GPUTexture* tonemappedTexture = SDL_CreateGPUTexture(device, &tonemappedTextureCreateInfo);
 
     // Create buffers
     SDL_GPUBufferCreateInfo particleBufferDesc = {
@@ -835,6 +1042,11 @@ int main(int argc, char* args[]) {
             }
         }
 
+        float currTime = SDL_GetTicks() / 1000.0f;
+        float deltaTime = currTime - time;
+        time = currTime;
+
+        // Gameplay logic
         if (keyboardState[SDL_SCANCODE_Z]) {
             useWireframeMode = !useWireframeMode;
         }
@@ -857,16 +1069,27 @@ int main(int argc, char* args[]) {
             camera.Truck(0.1f);
         }
         if (keyboardState[SDL_SCANCODE_R]) {
-            camera.Pedestal(0.1f);
-        }
-        if (keyboardState[SDL_SCANCODE_F]) {
             camera.Pedestal(-0.1f);
         }
+        if (keyboardState[SDL_SCANCODE_F]) {
+            camera.Pedestal(0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_I]) {
+            camera.Tilt(0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_K]) {
+            camera.Tilt(-0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_L]) {
+            camera.Pan(-0.1f);
+        }
+        if (keyboardState[SDL_SCANCODE_J]) {
+            camera.Pan(0.1f);
+        }
 
-        float currTime = SDL_GetTicks() / 1000.0f;
-        float deltaTime = currTime - time;
-        time = currTime;
+        sponza->Update(deltaTime);
 
+        // Prepare uniforms
         float mouseX, mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
 
@@ -899,22 +1122,42 @@ int main(int argc, char* args[]) {
 
         // 1. compute pass
         SDL_Log("Begin procedural texture pass");
-        SDL_GPUComputePass* computePass = SDL_BeginGPUComputePass(
+        SDL_GPUComputePass* procTexturePass = SDL_BeginGPUComputePass(
             cmd,
-            (SDL_GPUStorageTextureReadWriteBinding[]){{
-                .texture = procTexture,
-                .mip_level = 0,
-            }},
+            (SDL_GPUStorageTextureReadWriteBinding[]){
+                {
+                    .texture = procTexture,
+                    .mip_level = 0,
+                }
+            },
             1,
-            NULL,
+            nullptr,
             0
         );
-        SDL_BindGPUComputePipeline(computePass, procTexturePipeline);
+        SDL_BindGPUComputePipeline(procTexturePass, procTexturePipeline);
         SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
-        SDL_DispatchGPUCompute(computePass, ceil(procTextureSize / 16.0), ceil(procTextureSize / 16.0), 1);
-        SDL_EndGPUComputePass(computePass);
+        SDL_DispatchGPUCompute(procTexturePass, ceil(procTextureSize / 16.0), ceil(procTextureSize / 16.0), 1);
+        SDL_EndGPUComputePass(procTexturePass);
 
         SDL_GenerateMipmapsForGPUTexture(cmd, procTexture);
+
+        SDL_GPUComputePass* noiseTexturePass = SDL_BeginGPUComputePass(
+            cmd,
+            (SDL_GPUStorageTextureReadWriteBinding[]){
+                {
+                    .texture = noiseTexture,
+                }
+            },
+            1,
+            nullptr,
+            0
+        );
+        SDL_BindGPUComputePipeline(noiseTexturePass, noiseTexturePipeline);
+        SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
+        SDL_DispatchGPUCompute(noiseTexturePass, (noiseTextureSize + 7.0f) / 8.0f, (noiseTextureSize + 7.0f) / 8.0f, (noiseTextureSize + 7.0f) / 8.0f);
+        SDL_EndGPUComputePass(noiseTexturePass);
+
+        // SDL_GenerateMipmapsForGPUTexture(cmd, noiseTexture);
 
         // SDL_GPUComputePass* particleSingleBufferPass = SDL_BeginGPUComputePass(
         //     cmd,
@@ -946,6 +1189,7 @@ int main(int argc, char* args[]) {
         SDL_BindGPUComputePipeline(particleForcePass, particleForcePipeline);
         SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
         SDL_PushGPUComputeUniformData(cmd, 1, &attractorPos, sizeof(glm::vec3));
+        SDL_PushGPUComputeUniformData(cmd, 2, &noiseTexture, sizeof(SDL_GPUTexture*));
         SDL_DispatchGPUCompute(particleForcePass, (particles.size() + 255) / 256, 1, 1);
         SDL_EndGPUComputePass(particleForcePass);
 
@@ -1085,7 +1329,13 @@ int main(int argc, char* args[]) {
             colorTargetInfo.store_op = SDL_GPU_STOREOP_RESOLVE;
             colorTargetInfo.resolve_texture = resolveTexture;
 
-            SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, NULL);
+            SDL_GPUDepthStencilTargetInfo depthTargetInfo = { 0 };
+            depthTargetInfo.texture = depthTexture;
+            depthTargetInfo.clear_depth = 1.0f;
+            depthTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+            depthTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
+
+            SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, &depthTargetInfo);
             {
                 // Draw cube
                 SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
@@ -1099,12 +1349,102 @@ int main(int argc, char* args[]) {
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
                 SDL_PushGPUVertexUniformData(cmd, 1, &instance, sizeof(SimpleInstance));
 
-                simpleCube.Bind(renderPass);
+                // simpleCube.Bind(renderPass);
                 // if (simpleCube.has_indices()) {
                 //     SDL_DrawGPUIndexedPrimitives(renderPass, simpleCube.index_count(), 1, 0, 0, 0);
                 // } else {
                 //     SDL_DrawGPUPrimitives(renderPass, simpleCube.vertex_count(), 1, 0, 0);
                 // }
+
+                // Draw SSBO scene
+                // SDL_BindGPUGraphicsPipeline(renderPass, uberPipeline);
+                // camInfo = {
+                //     .view = camera.GetViewMatrix(),
+                //     .proj = camera.GetProjMatrix()
+                // };
+                // SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+                // SDL_BindGPUVertexStorageBuffers(renderPass, 0, (SDL_GPUBuffer*[]){ instanceBuffer, meshBuffer, materialBuffer, vertexBuffer, indexBuffer }, 5);
+                // SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
+                // SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, drawCommandBuffer, 0, drawCommands.size());
+
+                // Draw Sponza
+                SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+                std::function<void(const std::shared_ptr<Node>&)> drawNode = [&](const std::shared_ptr<Node>& node) {
+                    if (node->meshGroup) {
+                        instance.model = node->worldTransform;
+                        SDL_PushGPUVertexUniformData(cmd, 1, &instance, sizeof(SimpleInstance));
+                        for (const auto& mesh : node->meshGroup->meshes) {
+                            if (mesh->material) {
+                                // const auto& pipeline = material->GetPipeline(device, renderTargetFormat, msaaSampleCount);
+                                if (mesh->material->pipeline == nullptr) {
+                                    SDL_Log("pipeline is null");
+                                    continue;
+                                }
+                                if (mesh->ebo == nullptr) {
+                                    SDL_Log("index buffer is null");
+                                    continue;
+                                }
+                                if (mesh->vbos.size() < 4) {
+                                    SDL_Log("vertex buffer count is less than 4");
+                                    continue;
+                                }
+                                if (mesh->material->albedoMap == nullptr || mesh->material->albedoMap->texture == nullptr) {
+                                    SDL_Log("albedo map is null");
+                                    continue;
+                                }
+                                // for (const Uint32& idx : mesh->indices) {
+                                //     SDL_Log("position: %f, %f, %f", mesh->positions[idx].x, mesh->positions[idx].y, mesh->positions[idx].z);
+                                //     SDL_Log("uv: %f, %f", mesh->uv0s[idx].x, mesh->uv0s[idx].y);
+                                //     SDL_Log("normal: %f, %f, %f", mesh->normals[idx].x, mesh->normals[idx].y, mesh->normals[idx].z);
+                                //     SDL_Log("tangent: %f, %f, %f", mesh->tangents[idx].x, mesh->tangents[idx].y, mesh->tangents[idx].z);
+                                // }
+                                // SDL_Log("--------------------------------");
+                                SDL_BindGPUGraphicsPipeline(renderPass, pbrPipeline);
+                                std::array<SDL_GPUBufferBinding, 4> vertexBufferBindings = {{
+                                    { .buffer = mesh->vbos[0].get(), .offset = 0 },
+                                    { .buffer = mesh->vbos[1].get(), .offset = 0 },
+                                    { .buffer = mesh->vbos[2].get(), .offset = 0 },
+                                    { .buffer = mesh->vbos[3].get(), .offset = 0 },
+                                }};
+                                // for (const auto& vbo : mesh->vbos) {
+                                //     SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vbo.get(), .offset = 0 };
+                                //     SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+                                // }
+                                SDL_BindGPUVertexBuffers(renderPass, 0, vertexBufferBindings.data(), static_cast<Uint32>(vertexBufferBindings.size()));
+                                std::array<SDL_GPUTextureSamplerBinding, 5> textureSamplerBindings = {{
+                                    { .texture = mesh->material->albedoMap->texture, .sampler = sampler },
+                                    // { .texture = mesh->material->normalMap->texture, .sampler = sampler },
+                                    // { .texture = mesh->material->metallicRoughnessMap->texture, .sampler = sampler },
+                                    // { .texture = mesh->material->occlusionMap->texture, .sampler = sampler },
+                                    // { .texture = mesh->material->emissiveMap->texture, .sampler = sampler },
+                                    // { .texture = imgTexture, .sampler = sampler },
+                                    { .texture = imgTexture, .sampler = sampler },
+                                    { .texture = imgTexture, .sampler = sampler },
+                                    { .texture = imgTexture, .sampler = sampler },
+                                    { .texture = imgTexture, .sampler = sampler },
+                                }};
+                                SDL_BindGPUFragmentSamplers(renderPass, 0, textureSamplerBindings.data(), textureSamplerBindings.size());
+                                if (mesh->indices.size() > 0) {
+                                    SDL_GPUBufferBinding indexBufferBinding = { .buffer = mesh->ebo.get(), .offset = 0 };
+                                    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+                                    SDL_DrawGPUIndexedPrimitives(renderPass, mesh->indices.size(), 1, 0, 0, 0);
+                                } else {
+                                    SDL_DrawGPUPrimitives(renderPass, mesh->positions.size(), 1, 0, 0);
+                                }
+                            } else {
+                                // TODO: use default material
+                                SDL_Log("material is null");
+                                continue;
+                            }
+                        }
+                    }
+                    for (const auto& child : node->children) {
+                        drawNode(child);
+                    }
+                };
+                for (const auto& node : sponza->nodes) {
+                    drawNode(node);
+                }
 
                 // Draw particles
                 SDL_BindGPUGraphicsPipeline(renderPass, particlePipeline);
@@ -1116,71 +1456,31 @@ int main(int argc, char* args[]) {
                 } else {
                     SDL_DrawGPUPrimitives(renderPass, quad.vertex_count(), particles.size(), 0, 0);
                 }
-
-                // Draw SSBO scene
-                SDL_BindGPUGraphicsPipeline(renderPass, uberPipeline);
-                camInfo = {
-                    .view = camera.GetViewMatrix(),
-                    .proj = camera.GetProjMatrix()
-                };
-                SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
-                SDL_BindGPUVertexStorageBuffers(renderPass, 0, (SDL_GPUBuffer*[]){ instanceBuffer, meshBuffer, materialBuffer, vertexBuffer, indexBuffer }, 5);
-                SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
-                // SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, drawCommandBuffer, 0, drawCommands.size());
-
-                // Draw Sponza
-                // std::function<void(const std::shared_ptr<Node>&, const glm::mat4&)> drawNode =
-                //     [&](const std::shared_ptr<Node>& node, const glm::mat4& parentMatrix) {
-                //         if (!node) return;
-                //         glm::mat4 localToWorldMatrix = parentMatrix * node->localTransform;
-                //         if (node->mesh) {
-                //             Transform xform = {
-                //                 .model = localToWorldMatrix,
-                //                 .view = camera.GetViewMatrix(),
-                //                 .proj = camera.GetProjMatrix()
-                //             };
-                //             SDL_PushGPUVertexUniformData(cmd, 0, &xform, sizeof(Transform));
-                //             for (const auto& subMesh : node->mesh->subMeshes) {
-                //                 if (subMesh->material) {
-                //                     const auto& material = subMesh->material;
-                //                     const auto& pipeline = material->GetPipeline(device, renderTargetFormat, msaaSampleCount);
-                //                     if (material->pipeline == nullptr) {
-                //                         continue;
-                //                     }
-                //                     SDL_BindGPUGraphicsPipeline(renderPass, pipeline.get());
-                //                     for (const auto& vbo : subMesh->vbos) {
-                //                         SDL_GPUBufferBinding vertexBufferBinding = { .buffer = vbo.get(), .offset = 0 };
-                //                         SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
-                //                     }
-                //                     if (subMesh->material->albedoMap) {
-                //                         SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = subMesh->material->albedoMap.get(), .sampler = sampler };
-                //                         SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-                //                     }
-                //                 } else {
-                //                     // TODO: use default material
-                //                     continue;
-                //                 }
-                //                 if (subMesh->ebo) {
-                //                     SDL_GPUBufferBinding indexBufferBinding = { .buffer = subMesh->ebo.get(), .offset = 0 };
-                //                     SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, subMesh->indexType);
-                //                     SDL_DrawGPUIndexedPrimitives(renderPass, subMesh->indexCount, 1, 0, 0, 0);
-                //                 } else {
-                //                     SDL_DrawGPUPrimitives(renderPass, subMesh->vertexCount, 1, 0, 0);
-                //                 }
-                //             }
-                //         }
-                //         for (const auto& child : node->children) {
-                //             drawNode(child, localToWorldMatrix);
-                //         }
-                //     };
-                // for (const auto& node : sponza->nodes) {
-                //     drawNode(node, glm::scale(glm::mat4(1.0f), glm::vec3(100.0f)));
-                // }
             }
             SDL_EndGPURenderPass(renderPass);
 
+            SDL_GPUColorTargetInfo tonemapTargetInfo = { 0 };
+            tonemapTargetInfo.texture = tonemappedTexture;
+            tonemapTargetInfo.clear_color = (SDL_FColor){ 0.0f, 0.0f, 0.0f, 1.0f };
+            tonemapTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+            tonemapTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
+
+            SDL_GPURenderPass* tonemapPass = SDL_BeginGPURenderPass(cmd, &tonemapTargetInfo, 1, NULL);
+            {
+                SDL_BindGPUGraphicsPipeline(tonemapPass, tonemapPipeline);
+                SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = resolveTexture,.sampler = sampler };
+                SDL_BindGPUFragmentSamplers(tonemapPass, 0, &textureSamplerBinding, 1);
+
+                TonemapParams tonemapParams = {
+                    .exposure = 1.0f,
+                };
+                SDL_PushGPUFragmentUniformData(cmd, 0, &tonemapParams, sizeof(TonemapParams));
+                SDL_DrawGPUPrimitives(tonemapPass, 3, 1, 0, 0);
+            }
+            SDL_EndGPURenderPass(tonemapPass);
+
             SDL_GPUBlitInfo blitInfo = {
-				.source.texture = resolveTexture,
+				.source.texture = tonemappedTexture,
 				.source.w = static_cast<Uint32>(windowWidth),
 				.source.h = static_cast<Uint32>(windowHeight),
 				.destination.texture = swapchainTexture,
@@ -1198,7 +1498,7 @@ int main(int argc, char* args[]) {
     }
 
     // Release GPU resources
-    // sponza->Release(device);
+    sponza->Release(device);
     simpleCube.Release(device);
     quad.Release(device);
 
@@ -1215,6 +1515,7 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUBuffer(device, particleBuffer1);
 
     SDL_ReleaseGPUComputePipeline(device, procTexturePipeline);
+    SDL_ReleaseGPUComputePipeline(device, noiseTexturePipeline);
     SDL_ReleaseGPUComputePipeline(device, particleForcePipeline);
     SDL_ReleaseGPUComputePipeline(device, particleIntegratePipeline);
     SDL_ReleaseGPUComputePipeline(device, particleSingleBufferPipeline);
@@ -1225,13 +1526,17 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUGraphicsPipeline(device, fillPipeline);
 	SDL_ReleaseGPUGraphicsPipeline(device, linePipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, uberPipeline);
+    SDL_ReleaseGPUGraphicsPipeline(device, pbrPipeline);
+    SDL_ReleaseGPUGraphicsPipeline(device, tonemapPipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, particlePipeline);
 
     SDL_ReleaseGPUTexture(device, imgTexture);
     SDL_ReleaseGPUTexture(device, procTexture);
+    SDL_ReleaseGPUTexture(device, noiseTexture);
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_ReleaseGPUTexture(device, msaaTexture);
     SDL_ReleaseGPUTexture(device, resolveTexture);
+    SDL_ReleaseGPUTexture(device, tonemappedTexture);
 
     // Release window and GPU device
     SDL_ReleaseWindowFromGPUDevice(device, window);

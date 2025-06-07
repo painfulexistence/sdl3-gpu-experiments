@@ -12,6 +12,8 @@ layout(std140, set = 2, binding = 1) uniform AttractorBuffer {
     vec3 attractorPos;
 };
 
+layout(set = 2, binding = 2) uniform sampler2DArray noiseTex;
+
 struct Particle {
     vec3 position;
     vec3 velocity;

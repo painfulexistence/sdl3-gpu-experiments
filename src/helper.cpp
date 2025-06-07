@@ -141,9 +141,12 @@ std::shared_ptr<SDL_Surface> LoadImage(const char* filename) {
     uint8_t* data = stbi_load(filename, &width, &height, &numChannels, 4);
     if (data) {
         auto image = SDL_CreateSurfaceFrom(width, height, desiredFormat, data, width * 32);
-        stbi_image_free(data);
         return std::shared_ptr<SDL_Surface>(
-            image, [](SDL_Surface* surf) { SDL_DestroySurface(surf); }
+            image,
+            [data](SDL_Surface* surf) {
+                SDL_DestroySurface(surf);
+                stbi_image_free(data);
+            }
         );
     } else {
         return nullptr;
@@ -397,114 +400,283 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
         return texture;
     };
 
+    // Load materials
     std::vector<std::shared_ptr<Material>> materials;
     materials.reserve(model.materials.size());
     for (const auto& mat : model.materials) {
         auto material = std::make_shared<Material>();
-        std::vector<int> texIndices = {
-            mat.pbrMetallicRoughness.baseColorTexture.index,
-            mat.normalTexture.index,
-            mat.pbrMetallicRoughness.metallicRoughnessTexture.index,
-            mat.occlusionTexture.index,
-            mat.emissiveTexture.index,
-        };
-        for (int texIdx : texIndices) {
-            if (texIdx >= 0) {
-                const auto& srcTex = model.textures[texIdx];
-                auto texture = CreateAndUploadTexture(model.images[srcTex.source]);
-                if (texIdx == mat.pbrMetallicRoughness.baseColorTexture.index) {
-                    material->albedoMap = texture;
-                } else if (texIdx == mat.normalTexture.index) {
-                    material->normalMap = texture;
-                } else if (texIdx == mat.pbrMetallicRoughness.metallicRoughnessTexture.index) {
-                    material->metallicRoughnessMap = texture;
-                } else if (texIdx == mat.occlusionTexture.index) {
-                    material->occlusionMap = texture;
-                } else if (texIdx == mat.emissiveTexture.index) {
-                    material->emissiveMap = texture;
-                }
+        material->name = mat.name;
+        // std::vector<int> texIndices = {
+        //     mat.pbrMetallicRoughness.baseColorTexture.index,
+        //     mat.normalTexture.index,
+        //     mat.pbrMetallicRoughness.metallicRoughnessTexture.index,
+        //     mat.occlusionTexture.index,
+        //     mat.emissiveTexture.index,
+        // };
+        // for (int texIdx : texIndices) {
+        //     if (texIdx >= 0) {
+        //         const auto& srcTex = model.textures[texIdx];
+        //         auto texture = CreateAndUploadTexture(model.images[srcTex.source]);
+        //         if (texIdx == mat.pbrMetallicRoughness.baseColorTexture.index) {
+        //             material->albedoMap = texture;
+        //         } else if (texIdx == mat.normalTexture.index) {
+        //             material->normalMap = texture;
+        //         } else if (texIdx == mat.pbrMetallicRoughness.metallicRoughnessTexture.index) {
+        //             material->metallicRoughnessMap = texture;
+        //         } else if (texIdx == mat.occlusionTexture.index) {
+        //             material->occlusionMap = texture;
+        //         } else if (texIdx == mat.emissiveTexture.index) {
+        //             material->emissiveMap = texture;
+        //         }
+        //     }
+        // }
+        if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
+            const auto& texture = model.textures[mat.pbrMetallicRoughness.baseColorTexture.index];
+            if (texture.source >= 0) {
+                const auto& img = model.images[texture.source];
+                material->albedoMap = std::make_shared<Image>(Image {
+                    .uri = img.uri,
+                    .width = static_cast<Uint32>(img.width),
+                    .height = static_cast<Uint32>(img.height),
+                    .component = static_cast<Uint32>(img.component),
+                    .size = static_cast<Uint32>(img.image.size()),
+                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
+                });
+                // material->uvs["albedo"] = mat.pbrMetallicRoughness.baseColorTexture.texCoord;
+            }
+        }
+        if (mat.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
+            const auto& texture = model.textures[mat.pbrMetallicRoughness.metallicRoughnessTexture.index];
+            if (texture.source >= 0) {
+                const auto& img = model.images[texture.source];
+                material->metallicRoughnessMap = std::make_shared<Image>(Image {
+                    .uri = img.uri,
+                    .width = static_cast<Uint32>(img.width),
+                    .height = static_cast<Uint32>(img.height),
+                    .component = static_cast<Uint32>(img.component),
+                    .size = static_cast<Uint32>(img.image.size()),
+                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
+                });
+                // material->uvs["metallicRoughness"] = mat.pbrMetallicRoughness.metallicRoughnessTexture.texCoord;
+            }
+        }
+        if (mat.normalTexture.index >= 0) {
+            const auto& texture = model.textures[mat.normalTexture.index];
+            if (texture.source >= 0) {
+                const auto& img = model.images[texture.source];
+                material->normalMap = std::make_shared<Image>(Image {
+                    .uri = img.uri,
+                    .width = static_cast<Uint32>(img.width),
+                    .height = static_cast<Uint32>(img.height),
+                    .component = static_cast<Uint32>(img.component),
+                    .size = static_cast<Uint32>(img.image.size()),
+                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
+                });
+            }
+        }
+        if (mat.occlusionTexture.index >= 0) {
+            const auto& texture = model.textures[mat.occlusionTexture.index];
+            if (texture.source >= 0) {
+                const auto& img = model.images[texture.source];
+                material->occlusionMap = std::make_shared<Image>(Image {
+                    .uri = img.uri,
+                    .width = static_cast<Uint32>(img.width),
+                    .height = static_cast<Uint32>(img.height),
+                    .component = static_cast<Uint32>(img.component),
+                    .size = static_cast<Uint32>(img.image.size()),
+                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
+                });
+            }
+        }
+        if (mat.emissiveTexture.index >= 0) {
+            const auto& texture = model.textures[mat.emissiveTexture.index];
+            if (texture.source >= 0) {
+                const auto& img = model.images[texture.source];
+                material->emissiveMap = std::make_shared<Image>(Image {
+                    .uri = img.uri,
+                    .width = static_cast<Uint32>(img.width),
+                    .height = static_cast<Uint32>(img.height),
+                    .component = static_cast<Uint32>(img.component),
+                    .size = static_cast<Uint32>(img.image.size()),
+                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
+                });
             }
         }
         materials.push_back(material);
     }
 
-    std::vector<std::shared_ptr<Mesh>> meshes;
-    meshes.reserve(model.meshes.size());
+    // Load meshes
+    std::vector<std::shared_ptr<MeshGroup>> meshGroups;
+    meshGroups.reserve(model.meshes.size());
     for (const auto& srcMesh : model.meshes) {
-        auto mesh = std::make_shared<Mesh>();
-        mesh->name = srcMesh.name;
+        auto meshGroup = std::make_shared<MeshGroup>();
+        meshGroup->name = srcMesh.name;
 
-        for (const auto& primitive : srcMesh.primitives) {;
+        for (const auto& primitive : srcMesh.primitives) {
             bool invalid = false;
-            auto subMesh = std::make_unique<SubMesh>();
-            std::vector<SDL_GPUVertexBufferDescription> vertexBufferDescs;
-            std::vector<SDL_GPUVertexAttribute> vertexAttributes;
-            Uint32 attrLocation = 0;
-            const std::array<std::string, 3> attributeNames = { "POSITION", "NORMAL", "TEXCOORD_0" };
-            for (const auto& attr : attributeNames) {
-                auto it = primitive.attributes.find(attr);
-                if (it != primitive.attributes.end()) {
-                    const auto& accessor = model.accessors[it->second];
-                    const auto& bufferView = model.bufferViews[accessor.bufferView];
-                    const auto& buffer = model.buffers[bufferView.buffer];
-                    const auto elmSize = GetBufferElementSize(accessor);
-                    const auto elmFormat = GetBufferElementFormat(accessor);
-                    if (elmFormat <= SDL_GPU_VERTEXELEMENTFORMAT_INVALID) {
-                        SDL_Log("Invalid element format for attribute %s", attr.c_str());
-                        invalid = true;
-                        break;
+            auto mesh = std::make_unique<Mesh>();
+            for (const auto& attr : primitive.attributes) {
+                const auto& accessor = model.accessors[attr.second];
+                const auto& bufferView = model.bufferViews[accessor.bufferView];
+                const auto& buffer = model.buffers[bufferView.buffer];
+                const auto elmSize = GetBufferElementSize(accessor);
+                const auto elmFormat = GetBufferElementFormat(accessor);
+                const float* data = reinterpret_cast<const float*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+
+                if (attr.first == "POSITION") {
+                    mesh->positions.resize(accessor.count);
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->positions[i] = glm::vec3(
+                            data[i * 3 + 0],
+                            -data[i * 3 + 1], // Y is inverted
+                            data[i * 3 + 2]
+                        );
                     }
-                    const auto bufferSize = accessor.count * elmSize;
-                    // TODO: check if the buffer is already created, if so, just reuse it and uodate specified bytes
-                    // Currently, a new buffer is created for each attribute
-                    auto vbo = CreateAndUploadBuffer(
-                        buffer.data.data() + bufferView.byteOffset + accessor.byteOffset,
-                        bufferSize
-                    );
-                    vertexBufferDescs.push_back(SDL_GPUVertexBufferDescription {
-                        .slot = static_cast<Uint32>(subMesh->vbos.size()),
-                        .pitch = static_cast<Uint32>(bufferSize),
-                        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                        .instance_step_rate = 0,
-                    });
-                    vertexAttributes.push_back(SDL_GPUVertexAttribute {
-                        .location = attrLocation++,
-                        .buffer_slot = static_cast<Uint32>(subMesh->vbos.size()),
-                        .format = elmFormat,
-                        .offset = 0
-                    });
-                    subMesh->vbos.push_back(vbo);
-                    // All attributes in a primitive must have the same number of vertices according to the glTF spec
-                    subMesh->vertexCount = accessor.count;
+                }
+                else if (attr.first == "NORMAL") {
+                    mesh->normals.resize(accessor.count);
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->normals[i] = glm::vec3(
+                            data[i * 3 + 0],
+                            -data[i * 3 + 1], // Y is inverted
+                            data[i * 3 + 2]
+                        );
+                    }
+                } else if (attr.first == "TEXCOORD_0") {
+                    mesh->uv0s.resize(accessor.count);
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->uv0s[i] = glm::vec2(
+                            data[i * 2 + 0],
+                            data[i * 2 + 1]
+                        );
+                    }
+                } else if (attr.first == "TEXCOORD_1") {
+                    mesh->uv1s.resize(accessor.count);
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->uv1s[i] = glm::vec2(
+                            data[i * 2 + 0],
+                            data[i * 2 + 1]
+                        );
+                    }
+                } else if (attr.first == "TANGENT") {
+                    mesh->tangents.resize(accessor.count);
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->tangents[i] = glm::vec3(
+                            data[i * 3 + 0],
+                            -data[i * 3 + 1], // Y is inverted
+                            data[i * 3 + 2]
+                        );
+                    }
+                } else if (attr.first == "COLOR_0") {
+                    mesh->colors.resize(accessor.count);
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->colors[i] = glm::vec4(
+                            data[i * 4 + 0],
+                            data[i * 4 + 1],
+                            data[i * 4 + 2],
+                            data[i * 4 + 3]
+                        );
+                    }
                 }
             }
-            if (invalid) {
-                SDL_Log("Skipping a primitive due to invalid format");
-                continue;
-            }
+            // std::vector<SDL_GPUVertexBufferDescription> vertexBufferDescs;
+            // std::vector<SDL_GPUVertexAttribute> vertexAttributes;
+            // Uint32 attrLocation = 0;
+            // const std::array<std::string, 3> attributeNames = { "POSITION", "NORMAL", "TEXCOORD_0" };
+            // for (const auto& attr : attributeNames) {
+            //     auto it = primitive.attributes.find(attr);
+            //     if (it != primitive.attributes.end()) {
+            //         const auto& accessor = model.accessors[it->second];
+            //         const auto& bufferView = model.bufferViews[accessor.bufferView];
+            //         const auto& buffer = model.buffers[bufferView.buffer];
+            //         const auto elmSize = GetBufferElementSize(accessor);
+            //         const auto elmFormat = GetBufferElementFormat(accessor);
+            //         if (elmFormat <= SDL_GPU_VERTEXELEMENTFORMAT_INVALID) {
+            //             SDL_Log("Invalid element format for attribute %s", attr.c_str());
+            //             invalid = true;
+            //             break;
+            //         }
+            //         const auto bufferSize = accessor.count * elmSize;
+            //         // TODO: check if the buffer is already created, if so, just reuse it and uodate specified bytes
+            //         // Currently, a new buffer is created for each attribute
+            //         auto vbo = CreateAndUploadBuffer(
+            //             buffer.data.data() + bufferView.byteOffset + accessor.byteOffset,
+            //             bufferSize
+            //         );
+            //         vertexBufferDescs.push_back(SDL_GPUVertexBufferDescription {
+            //             .slot = static_cast<Uint32>(mesh->vbos.size()),
+            //             .pitch = static_cast<Uint32>(bufferSize),
+            //             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            //             .instance_step_rate = 0,
+            //         });
+            //         vertexAttributes.push_back(SDL_GPUVertexAttribute {
+            //             .location = attrLocation++,
+            //             .buffer_slot = static_cast<Uint32>(mesh->vbos.size()),
+            //             .format = elmFormat,
+            //             .offset = 0
+            //         });
+            //         mesh->vbos.push_back(vbo);
+            //         // All attributes in a primitive must have the same number of vertices according to the glTF spec
+            //         mesh->vertexCount = accessor.count;
+            //     }
+            // }
+            // if (invalid) {
+            //     SDL_Log("Skipping a primitive due to invalid format");
+            //     continue;
+            // }
             if (primitive.indices >= 0) {
                 const auto& accessor = model.accessors[primitive.indices];
                 const auto& bufferView = model.bufferViews[accessor.bufferView];
                 const auto& buffer = model.buffers[bufferView.buffer];
-                subMesh->ebo = CreateAndUploadBuffer(
-                    buffer.data.data() + bufferView.byteOffset + accessor.byteOffset,
-                    accessor.count * GetBufferElementSize(accessor)
-                );
-                subMesh->indexCount = accessor.count;
-                subMesh->indexType = SDL_GPU_INDEXELEMENTSIZE_16BIT;
+
+                // mesh->ebo = CreateAndUploadBuffer(
+                //     buffer.data.data() + bufferView.byteOffset + accessor.byteOffset,
+                //     accessor.count * GetBufferElementSize(accessor)
+                // );
+                // mesh->indexCount = accessor.count;
+                // mesh->indexType = SDL_GPU_INDEXELEMENTSIZE_16BIT;
+
+                mesh->indices.resize(accessor.count);
+
+                switch (accessor.componentType) {
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
+                    const Uint16* data = reinterpret_cast<const Uint16*>(
+                        &buffer.data[bufferView.byteOffset + accessor.byteOffset]
+                    );
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->indices[i] = static_cast<Uint32>(data[i]);
+                    }
+                    break;
+                }
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
+                    const Uint32* data = reinterpret_cast<const Uint32*>(
+                        &buffer.data[bufferView.byteOffset + accessor.byteOffset]
+                    );
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->indices[i] = data[i];
+                    }
+                    break;
+                }
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
+                    const Uint8* data = reinterpret_cast<const Uint8*>(
+                        &buffer.data[bufferView.byteOffset + accessor.byteOffset]
+                    );
+                    for (size_t i = 0; i < accessor.count; i++) {
+                        mesh->indices[i] = static_cast<Uint32>(data[i]);
+                    }
+                    break;
+                }
+                default:
+                    SDL_Log("Unsupported index component type: %d", accessor.componentType);
+                    break;
+                }
             }
             if (primitive.material >= 0) {
-                subMesh->material = materials[primitive.material];
+                mesh->material = materials[primitive.material];
                 // material pipeline creation
                 SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
-                    .vertex_shader = LoadShader(device, "TexturedCube.vert", 0, 1, 0, 0),
-                    .fragment_shader = LoadShader(device, "SolidColor.frag", 5, 1, 0, 0),
-                    .vertex_input_state = (SDL_GPUVertexInputState){
-                        .vertex_buffer_descriptions = vertexBufferDescs.data(),
-                        .num_vertex_buffers = static_cast<Uint32>(vertexBufferDescs.size()),
-                        .vertex_attributes = vertexAttributes.data(),
-                        .num_vertex_attributes = static_cast<Uint32>(vertexAttributes.size()),
-                    },
+                    .vertex_shader = LoadShader(device, "TBN.vert", 0, 2, 0, 0),
+                    .fragment_shader = LoadShader(device, "PBR.frag", 5, 0, 0, 0),
                     .rasterizer_state = {
                         .fill_mode = SDL_GPU_FILLMODE_FILL,
                         .cull_mode = SDL_GPU_CULLMODE_BACK,
@@ -529,17 +701,15 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
                 default:
                     throw std::runtime_error("Unsupported primitive mode");
                 }
-                subMesh->material->pipelineInfo = pipelineInfo;
-                for (int i = 0; i < pipelineInfo.vertex_input_state.num_vertex_attributes; i++) {
-                    if (pipelineInfo.vertex_input_state.vertex_attributes[i].format == SDL_GPU_VERTEXELEMENTFORMAT_INVALID) {
-                        throw std::runtime_error("Invalid element format for attribute " + std::to_string(i));
-                    }
-                }
+                mesh->material->pipelineInfo = pipelineInfo;
+            } else {
+                // TODO: create a default material
+                SDL_Log("No material found for primitive");
             }
-            mesh->subMeshes.push_back(std::move(subMesh));
+            meshGroup->meshes.push_back(std::move(mesh));
         }
 
-        meshes.push_back(mesh);
+        meshGroups.push_back(meshGroup);
     }
 
     std::function<std::shared_ptr<Node>(int)> createNode = [&](int nodeIndex) -> std::shared_ptr<Node> {
@@ -549,7 +719,7 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
         node->localTransform = GetLocalMatrix(srcNode);
 
         if (srcNode.mesh >= 0) {
-            node->mesh = meshes[srcNode.mesh];
+            node->meshGroup = meshGroups[srcNode.mesh];
         }
         for (int childIdx : srcNode.children) {
             node->children.push_back(createNode(childIdx));
