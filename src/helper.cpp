@@ -506,7 +506,7 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
                     for (size_t i = 0; i < accessor.count; i++) {
                         mesh->positions[i] = glm::vec3(
                             data[i * 3 + 0],
-                            -data[i * 3 + 1], // Y is inverted
+                            data[i * 3 + 1],
                             data[i * 3 + 2]
                         );
                     }
@@ -516,7 +516,7 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
                     for (size_t i = 0; i < accessor.count; i++) {
                         mesh->normals[i] = glm::vec3(
                             data[i * 3 + 0],
-                            -data[i * 3 + 1], // Y is inverted
+                            data[i * 3 + 1],
                             data[i * 3 + 2]
                         );
                     }
@@ -541,7 +541,7 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
                     for (size_t i = 0; i < accessor.count; i++) {
                         mesh->tangents[i] = glm::vec3(
                             data[i * 3 + 0],
-                            -data[i * 3 + 1], // Y is inverted
+                            data[i * 3 + 1],
                             data[i * 3 + 2]
                         );
                     }

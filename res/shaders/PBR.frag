@@ -41,9 +41,9 @@ const float PI = 3.1415927;
 const float gamma = 2.2;
 DirLight mainLight = { vec3(-20.0, 1.0, -5.0), vec3(1.0, 1.0, 1.0), 5.0 };
 PointLight auxLights[] = {
-    { vec3(0.0, -1.0, 0.0), vec3(1.0, 0.0, 0.0), 1.5 },
-    { vec3(2.0, -1.0, 0.0), vec3(0.0, 1.0, 0.0), 1.5 },
-    { vec3(0.0, -1.0, 2.0), vec3(0.0, 0.0, 1.0), 1.5 },
+    { vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), 1.5 },
+    { vec3(2.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), 1.5 },
+    { vec3(0.0, 1.0, 2.0), vec3(0.0, 0.0, 1.0), 1.5 },
 };
 
 vec3 CookTorranceBRDF(vec3 norm, vec3 lightDir, vec3 viewDir, Surface surf);
@@ -115,7 +115,12 @@ vec3 FresnelSchlick(float vh, vec3 f0) {
 }
 
 void main() {
-    vec3 albedo = pow(texture(albedoMap, tex_uv).rgb, vec3(gamma));
+    vec4 baseColor = texture(albedoMap, tex_uv);
+    if (baseColor.a < 0.5) {
+        discard;
+    }
+
+    vec3 albedo = pow(baseColor.rgb, vec3(gamma));
     vec3 normal = texture(normalMap, tex_uv).rgb * 2.0 - 1.0;
     vec3 metallicRoughness = texture(metallicRoughnessMap, tex_uv).rgb;
     float metallic = metallicRoughness.b;

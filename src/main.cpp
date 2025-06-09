@@ -18,13 +18,6 @@
 #include "geometry.hpp"
 #include "rng.hpp"
 
-bool useWireframeMode = false;
-bool useSmallViewport = false;
-bool useScissorRect = false;
-
-SDL_GPUViewport SmallViewport = { 150, 150, 200, 200, 0.1f, 1.0f };
-SDL_Rect ScissorRect = { 250, 250, 125, 125 };
-
 
 struct CameraInfo {
     glm::mat4 view;
@@ -351,7 +344,7 @@ int main(int argc, char* args[]) {
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
             .cull_mode = SDL_GPU_CULLMODE_BACK,
-            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+            .front_face = SDL_GPU_FRONTFACE_CLOCKWISE,
         },
         .multisample_state = {
             .sample_count = msaaSampleCount
@@ -420,7 +413,8 @@ int main(int argc, char* args[]) {
 		.vertex_attributes = simpleVertexAttributes.data(),
         .num_vertex_attributes = static_cast<Uint32>(simpleVertexAttributes.size()),
 	};
-    gfxPipelineDesc.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    // gfxPipelineDesc.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+    gfxPipelineDesc.rasterizer_state.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
     gfxPipelineDesc.target_info = {
         .color_target_descriptions = (SDL_GPUColorTargetDescription[]){
             {
@@ -545,6 +539,7 @@ int main(int argc, char* args[]) {
 
     // Load scene
     std::shared_ptr<Scene> sponza = LoadGLTF(device, "models/Sponza/Sponza.gltf");
+    // std::shared_ptr<Scene> sponza = LoadGLTF(device, "models/IntelSponza/NewSponza_Main_glTF_003.gltf");
     // sponza->Print();
     sponza->Upload(device);
     auto simpleCube = CPUMesh::CreateCube();
@@ -999,6 +994,14 @@ int main(int argc, char* args[]) {
         500.0f
     );
 
+    bool useWireframeMode = false;
+    bool useSmallViewport = false;
+    bool useScissorRect = false;
+
+    SDL_GPUViewport fullViewport = { 0, static_cast<float>(windowHeight), static_cast<float>(windowWidth), -static_cast<float>(windowHeight), 0.1f, 1.0f };
+    SDL_GPUViewport smallViewport = { 150, 350, 200, -200, 0.1f, 1.0f };
+    SDL_Rect ScissorRect = { 250, 250, 125, 125 };
+
     // Main loop
     Uint32 frameCount = 0;
     float time = SDL_GetTicks() / 1000.0f;
@@ -1055,16 +1058,16 @@ int main(int argc, char* args[]) {
             camera.Truck(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_R]) {
-            camera.Pedestal(-1.0f * deltaTime);
-        }
-        if (keyboardState[SDL_SCANCODE_F]) {
             camera.Pedestal(1.0f * deltaTime);
         }
+        if (keyboardState[SDL_SCANCODE_F]) {
+            camera.Pedestal(-1.0f * deltaTime);
+        }
         if (keyboardState[SDL_SCANCODE_I]) {
-            camera.Tilt(-1.0f * deltaTime);
+            camera.Tilt(1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_K]) {
-            camera.Tilt(1.0f * deltaTime);
+            camera.Tilt(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_L]) {
             camera.Pan(-1.0f * deltaTime);
@@ -1331,10 +1334,15 @@ int main(int argc, char* args[]) {
 
             SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &colorTargetInfo, 1, &depthTargetInfo);
             {
+                if (useSmallViewport) {
+                    SDL_SetGPUViewport(renderPass, &smallViewport);
+                } else {
+                    SDL_SetGPUViewport(renderPass, &fullViewport);
+                }
+                if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
+
                 // Draw cube
                 SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
-                if (useSmallViewport) SDL_SetGPUViewport(renderPass, &SmallViewport);
-                if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
                 SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
                 float angle = time * 0.5f;
