@@ -33,14 +33,12 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
     Uint32 threadCountY,
     Uint32 threadCountZ
 ) {
-    const char* basePath = SDL_GetBasePath();
-	char fullPath[256];
-	SDL_snprintf(fullPath, sizeof(fullPath), "%sres/shaders/%s.spv", basePath, filename);
+    std::string filePath = std::string(SDL_GetBasePath()) + "res/shaders/" + filename + ".spv";
 
 	size_t codeSize;
-	void* code = SDL_LoadFile(fullPath, &codeSize);
+	void* code = SDL_LoadFile(filePath.c_str(), &codeSize);
 	if (code == nullptr) {
-		SDL_Log("Failed to load compute shader from disk! %s", fullPath);
+		SDL_Log("Failed to load compute shader from disk! %s", filePath.c_str());
 		return nullptr;
 	}
 
@@ -89,14 +87,12 @@ SDL_GPUShader* LoadShader(
 		return nullptr;
 	}
 
-    const char* basePath = SDL_GetBasePath();
-	char fullPath[256];
-	SDL_snprintf(fullPath, sizeof(fullPath), "%sres/shaders/%s.spv", basePath, filename);
+    std::string filePath = std::string(SDL_GetBasePath()) + "res/shaders/" + filename + ".spv";
 
 	size_t codeSize;
-	void* code = SDL_LoadFile(fullPath, &codeSize);
+	void* code = SDL_LoadFile(filePath.c_str(), &codeSize);
 	if (code == nullptr) {
-		SDL_Log("Failed to load shader from disk! %s", fullPath);
+		SDL_Log("Failed to load shader from disk! %s", filePath.c_str());
 		return nullptr;
 	}
 
@@ -122,10 +118,12 @@ SDL_GPUShader* LoadShader(
 	return shader;
 }
 
-std::shared_ptr<SDL_Surface> LoadImage(const char* filename) {
+std::shared_ptr<Image> LoadImage(const char* filename) {
+    std::string filePath = std::string(SDL_GetBasePath()) + "res/" + filename;
+
     int width, height, numChannels;
-    if (!stbi_info(filename, &width, &height, &numChannels)) {
-        SDL_Log("Failed to load image at %s!\n", filename);
+    if (!stbi_info(filePath.c_str(), &width, &height, &numChannels)) {
+        SDL_Log("Failed to load image at %s!\n", filePath.c_str());
         return nullptr;
     }
     SDL_PixelFormat desiredFormat;
@@ -135,7 +133,7 @@ std::shared_ptr<SDL_Surface> LoadImage(const char* filename) {
         desiredFormat = SDL_PixelFormat::SDL_PIXELFORMAT_RGBA32;
         break;
     default:
-        SDL_Log("Unknown texture format at %s\n", filename);
+        SDL_Log("Unknown texture format at %s\n", filePath.c_str());
         return nullptr;
     }
     uint8_t* data = stbi_load(filename, &width, &height, &numChannels, 4);
@@ -154,12 +152,14 @@ std::shared_ptr<SDL_Surface> LoadImage(const char* filename) {
 }
 
 std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
+    std::string filePath = std::string(SDL_GetBasePath()) + "res/" + filename;
+
     tinygltf::Model model;
     tinygltf::TinyGLTF loader;
     std::string err;
     std::string warn;
 
-    bool result = loader.LoadASCIIFromFile(&model, &err, &warn, filename);
+    bool result = loader.LoadASCIIFromFile(&model, &err, &warn, filePath.c_str());
     if (!warn.empty()) {
         SDL_Log("GLTF Warning: %s", warn.c_str());
     }
