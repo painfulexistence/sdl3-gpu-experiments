@@ -993,7 +993,7 @@ int main(int argc, char* args[]) {
         glm::vec3(0.0f, 0.0f, -5.0f),
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
-        glm::radians(90.0f),
+        glm::radians(75.0f),
         windowWidth / (float)windowHeight,
         0.1f,
         500.0f
@@ -1043,34 +1043,40 @@ int main(int argc, char* args[]) {
             useScissorRect = !useScissorRect;
         }
         if (keyboardState[SDL_SCANCODE_W]) {
-            camera.Dolly(0.1f);
+            camera.Dolly(1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_S]) {
-            camera.Dolly(-0.1f);
+            camera.Dolly(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_D]) {
-            camera.Truck(-0.1f);
+            camera.Truck(1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_A]) {
-            camera.Truck(0.1f);
+            camera.Truck(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_R]) {
-            camera.Pedestal(-0.1f);
+            camera.Pedestal(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_F]) {
-            camera.Pedestal(0.1f);
+            camera.Pedestal(1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_I]) {
-            camera.Tilt(0.1f);
+            camera.Tilt(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_K]) {
-            camera.Tilt(-0.1f);
+            camera.Tilt(1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_L]) {
-            camera.Pan(-0.1f);
+            camera.Pan(-1.0f * deltaTime);
         }
         if (keyboardState[SDL_SCANCODE_J]) {
-            camera.Pan(0.1f);
+            camera.Pan(1.0f * deltaTime);
+        }
+        if (keyboardState[SDL_SCANCODE_U]) {
+            camera.Roll(-1.0f * deltaTime);
+        }
+        if (keyboardState[SDL_SCANCODE_O]) {
+            camera.Roll(1.0f * deltaTime);
         }
 
         sponza->Update(deltaTime);
