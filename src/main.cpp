@@ -988,7 +988,7 @@ int main(int argc, char* args[]) {
         glm::vec3(0.0f, 0.0f, -5.0f),
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
-        glm::radians(75.0f),
+        glm::radians(60.0f),
         windowWidth / (float)windowHeight,
         0.1f,
         500.0f
@@ -1321,7 +1321,7 @@ int main(int argc, char* args[]) {
         if (swapchainTexture != NULL) {
             SDL_GPUColorTargetInfo colorTargetInfo = { 0 };
             colorTargetInfo.texture = msaaTexture;
-            colorTargetInfo.clear_color = (SDL_FColor){ 0.0f, 0.0f, 0.0f, 1.0f };
+            colorTargetInfo.clear_color = (SDL_FColor){ 0.0f, 0.5f, 1.0f, 1.0f };
             colorTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
             colorTargetInfo.store_op = SDL_GPU_STOREOP_RESOLVE;
             colorTargetInfo.resolve_texture = resolveTexture;

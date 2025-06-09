@@ -39,7 +39,7 @@ struct PointLight {
 
 const float PI = 3.1415927;
 const float gamma = 2.2;
-DirLight mainLight = { vec3(-20.0, 1.0, -5.0), vec3(1.0, 1.0, 1.0), 5.0 };
+DirLight mainLight = { vec3(-20.0, -1.0, 5.0), vec3(1.0, 1.0, 1.0), 10.0 };
 PointLight auxLights[] = {
     { vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), 1.5 },
     { vec3(2.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), 1.5 },
