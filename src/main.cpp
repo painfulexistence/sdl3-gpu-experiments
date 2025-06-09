@@ -1535,6 +1535,7 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUTexture(device, noiseTexture);
     SDL_ReleaseGPUSampler(device, sampler);
     SDL_ReleaseGPUTexture(device, msaaTexture);
+    SDL_ReleaseGPUTexture(device, depthTexture);
     SDL_ReleaseGPUTexture(device, resolveTexture);
     SDL_ReleaseGPUTexture(device, tonemappedTexture);
 

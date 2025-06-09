@@ -11,9 +11,8 @@ struct Image {
     Uint32 width;
     Uint32 height;
     Uint32 component;
-    Uint32 size;
     std::vector<Uint8> pixels;
-    SDL_GPUTexture* texture;
+    std::unique_ptr<SDL_GPUTexture, std::function<void(SDL_GPUTexture*)>> texture;
 };
 
 struct Material {
@@ -48,6 +47,14 @@ struct Material {
     // }
 };
 
+enum class PrimitiveMode {
+    POINTS,
+    LINES,
+    LINE_STRIP,
+    TRIANGLES,
+    TRIANGLE_STRIP,
+};
+
 struct Mesh {
     std::vector<std::shared_ptr<SDL_GPUBuffer>> vbos;
     std::vector<SDL_GPUVertexBufferDescription> vertexBufferDescs;
@@ -65,8 +72,7 @@ struct Mesh {
     std::vector<glm::vec4> colors;
     std::vector<Uint32> indices;
     std::shared_ptr<Material> material = nullptr;
-
-
+    PrimitiveMode primitiveMode;
 };
 
 struct MeshGroup {
@@ -104,6 +110,8 @@ struct Node {
 class Scene {
 public:
     std::string name;
+    std::vector<std::shared_ptr<Image>> images;
+    std::vector<std::shared_ptr<Material>> materials;
     std::vector<std::shared_ptr<Node>> nodes;
 
     Scene() = default;
@@ -122,8 +130,13 @@ public:
     std::shared_ptr<Node> FindNode(const std::string& name);
     std::shared_ptr<Node> FindNodeInHierarchy(const std::string& name, const std::shared_ptr<Node>& node);
 
+private:
     void PrintNode(const std::shared_ptr<Node>& node);
 
     void UploadNode(const std::shared_ptr<Node>& node, SDL_GPUDevice* device);
     void UpdateNode(const std::shared_ptr<Node>& node, const glm::mat4& parentTransform);
+    void ReleaseNode(const std::shared_ptr<Node>& node, SDL_GPUDevice* device);
+
+    auto CreateTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* device) -> std::unique_ptr<SDL_GPUTexture, std::function<void(SDL_GPUTexture*)>>;
+    auto CreateBuffer(const void* data, size_t size, SDL_GPUBufferUsageFlags usage, SDL_GPUDevice* device) -> std::shared_ptr<SDL_GPUBuffer>;
 };

@@ -400,108 +400,69 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
         return texture;
     };
 
+    // Load images
+    std::vector<std::shared_ptr<Image>> images;
+    images.reserve(model.images.size());
+    for (const auto& img : model.images) {
+        images.push_back(std::make_shared<Image>(Image {
+            .uri = img.uri,
+            .width = static_cast<Uint32>(img.width),
+            .height = static_cast<Uint32>(img.height),
+            .component = static_cast<Uint32>(img.component),
+            .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
+        }));
+    }
+
     // Load materials
     std::vector<std::shared_ptr<Material>> materials;
     materials.reserve(model.materials.size());
     for (const auto& mat : model.materials) {
         auto material = std::make_shared<Material>();
         material->name = mat.name;
-        // std::vector<int> texIndices = {
-        //     mat.pbrMetallicRoughness.baseColorTexture.index,
-        //     mat.normalTexture.index,
-        //     mat.pbrMetallicRoughness.metallicRoughnessTexture.index,
-        //     mat.occlusionTexture.index,
-        //     mat.emissiveTexture.index,
-        // };
-        // for (int texIdx : texIndices) {
-        //     if (texIdx >= 0) {
-        //         const auto& srcTex = model.textures[texIdx];
-        //         auto texture = CreateAndUploadTexture(model.images[srcTex.source]);
-        //         if (texIdx == mat.pbrMetallicRoughness.baseColorTexture.index) {
-        //             material->albedoMap = texture;
-        //         } else if (texIdx == mat.normalTexture.index) {
-        //             material->normalMap = texture;
-        //         } else if (texIdx == mat.pbrMetallicRoughness.metallicRoughnessTexture.index) {
-        //             material->metallicRoughnessMap = texture;
-        //         } else if (texIdx == mat.occlusionTexture.index) {
-        //             material->occlusionMap = texture;
-        //         } else if (texIdx == mat.emissiveTexture.index) {
-        //             material->emissiveMap = texture;
-        //         }
-        //     }
-        // }
         if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
             const auto& texture = model.textures[mat.pbrMetallicRoughness.baseColorTexture.index];
             if (texture.source >= 0) {
-                const auto& img = model.images[texture.source];
-                material->albedoMap = std::make_shared<Image>(Image {
-                    .uri = img.uri,
-                    .width = static_cast<Uint32>(img.width),
-                    .height = static_cast<Uint32>(img.height),
-                    .component = static_cast<Uint32>(img.component),
-                    .size = static_cast<Uint32>(img.image.size()),
-                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
-                });
+                material->albedoMap = images[texture.source];
                 // material->uvs["albedo"] = mat.pbrMetallicRoughness.baseColorTexture.texCoord;
+                // material->samplers["albedo"] = texture.sampler;
             }
         }
         if (mat.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
             const auto& texture = model.textures[mat.pbrMetallicRoughness.metallicRoughnessTexture.index];
             if (texture.source >= 0) {
-                const auto& img = model.images[texture.source];
-                material->metallicRoughnessMap = std::make_shared<Image>(Image {
-                    .uri = img.uri,
-                    .width = static_cast<Uint32>(img.width),
-                    .height = static_cast<Uint32>(img.height),
-                    .component = static_cast<Uint32>(img.component),
-                    .size = static_cast<Uint32>(img.image.size()),
-                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
-                });
+                material->metallicRoughnessMap = images[texture.source];
                 // material->uvs["metallicRoughness"] = mat.pbrMetallicRoughness.metallicRoughnessTexture.texCoord;
+                // material->samplers["metallicRoughness"] = texture.sampler;
             }
         }
         if (mat.normalTexture.index >= 0) {
             const auto& texture = model.textures[mat.normalTexture.index];
             if (texture.source >= 0) {
-                const auto& img = model.images[texture.source];
-                material->normalMap = std::make_shared<Image>(Image {
-                    .uri = img.uri,
-                    .width = static_cast<Uint32>(img.width),
-                    .height = static_cast<Uint32>(img.height),
-                    .component = static_cast<Uint32>(img.component),
-                    .size = static_cast<Uint32>(img.image.size()),
-                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
-                });
+                material->normalMap = images[texture.source];
             }
         }
         if (mat.occlusionTexture.index >= 0) {
             const auto& texture = model.textures[mat.occlusionTexture.index];
             if (texture.source >= 0) {
-                const auto& img = model.images[texture.source];
-                material->occlusionMap = std::make_shared<Image>(Image {
-                    .uri = img.uri,
-                    .width = static_cast<Uint32>(img.width),
-                    .height = static_cast<Uint32>(img.height),
-                    .component = static_cast<Uint32>(img.component),
-                    .size = static_cast<Uint32>(img.image.size()),
-                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
-                });
+                material->occlusionMap = images[texture.source];
             }
         }
         if (mat.emissiveTexture.index >= 0) {
             const auto& texture = model.textures[mat.emissiveTexture.index];
             if (texture.source >= 0) {
-                const auto& img = model.images[texture.source];
-                material->emissiveMap = std::make_shared<Image>(Image {
-                    .uri = img.uri,
-                    .width = static_cast<Uint32>(img.width),
-                    .height = static_cast<Uint32>(img.height),
-                    .component = static_cast<Uint32>(img.component),
-                    .size = static_cast<Uint32>(img.image.size()),
-                    .pixels = std::vector<Uint8>(img.image.begin(), img.image.end())
-                });
+                material->emissiveMap = images[texture.source];
             }
         }
+        // pipeline creation
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
+            .vertex_shader = LoadShader(device, "TBN.vert", 0, 2, 0, 0),
+            .fragment_shader = LoadShader(device, "PBR.frag", 5, 0, 0, 0),
+            .rasterizer_state = {
+                .fill_mode = SDL_GPU_FILLMODE_FILL,
+                .cull_mode = SDL_GPU_CULLMODE_BACK,
+            }
+        };
+        material->pipelineInfo = pipelineInfo;
         materials.push_back(material);
     }
 
@@ -673,38 +634,28 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
             }
             if (primitive.material >= 0) {
                 mesh->material = materials[primitive.material];
-                // material pipeline creation
-                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
-                    .vertex_shader = LoadShader(device, "TBN.vert", 0, 2, 0, 0),
-                    .fragment_shader = LoadShader(device, "PBR.frag", 5, 0, 0, 0),
-                    .rasterizer_state = {
-                        .fill_mode = SDL_GPU_FILLMODE_FILL,
-                        .cull_mode = SDL_GPU_CULLMODE_BACK,
-                    }
-                };
-                switch (primitive.mode) {
-                case TINYGLTF_MODE_POINTS:
-                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_POINTLIST;
-                    break;
-                case TINYGLTF_MODE_LINE:
-                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_LINELIST;
-                    break;
-                case TINYGLTF_MODE_LINE_STRIP:
-                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_LINESTRIP;
-                    break;
-                case TINYGLTF_MODE_TRIANGLES:
-                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-                    break;
-                case TINYGLTF_MODE_TRIANGLE_STRIP:
-                    pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLESTRIP;
-                    break;
-                default:
-                    throw std::runtime_error("Unsupported primitive mode");
-                }
-                mesh->material->pipelineInfo = pipelineInfo;
             } else {
-                // TODO: create a default material
-                SDL_Log("No material found for primitive");
+                // if no material is specified, mesh->material would be nullptr
+                SDL_Log("No material specified for primitive");
+            }
+            switch (primitive.mode) {
+            case TINYGLTF_MODE_POINTS:
+                mesh->primitiveMode = PrimitiveMode::POINTS;
+                break;
+            case TINYGLTF_MODE_LINE:
+                mesh->primitiveMode = PrimitiveMode::LINES;
+                break;
+            case TINYGLTF_MODE_LINE_STRIP:
+                mesh->primitiveMode = PrimitiveMode::LINE_STRIP;
+                break;
+            case TINYGLTF_MODE_TRIANGLES:
+                mesh->primitiveMode = PrimitiveMode::TRIANGLES;
+                break;
+            case TINYGLTF_MODE_TRIANGLE_STRIP:
+                mesh->primitiveMode = PrimitiveMode::TRIANGLE_STRIP;
+                break;
+            default:
+                throw std::runtime_error("Unsupported primitive mode");
             }
             meshGroup->meshes.push_back(std::move(mesh));
         }
@@ -729,9 +680,12 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
     };
 
     const auto& srcScene = model.defaultScene >= 0 ? model.scenes[model.defaultScene] : model.scenes[0];
+    scene->name = srcScene.name;
+    // TODO: maybe directly store the images and materials in the scene
+    scene->images = std::move(images);
+    scene->materials = std::move(materials);
     for (int nodeIdx : srcScene.nodes) {
         scene->nodes.push_back(createNode(nodeIdx));
     }
-    scene->name = srcScene.name;
     return scene;
 }
