@@ -421,6 +421,21 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
     for (const auto& mat : model.materials) {
         auto material = std::make_shared<Material>();
         material->name = mat.name;
+        if (mat.alphaMode == "BLEND") {
+            material->alphaMode = AlphaMode::BLEND;
+        } else if (mat.alphaMode == "MASK") {
+            material->alphaMode = AlphaMode::MASK;
+        } else {
+            material->alphaMode = AlphaMode::OPAQUE;
+        }
+        material->alphaCutoff = mat.alphaCutoff;
+        material->doubleSided = mat.doubleSided;
+        material->baseColorFactor = glm::vec4(mat.pbrMetallicRoughness.baseColorFactor[0], mat.pbrMetallicRoughness.baseColorFactor[1], mat.pbrMetallicRoughness.baseColorFactor[2], mat.pbrMetallicRoughness.baseColorFactor[3]);
+        material->metallicFactor = mat.pbrMetallicRoughness.metallicFactor;
+        material->roughnessFactor = mat.pbrMetallicRoughness.roughnessFactor;
+        material->emissiveFactor = glm::vec3(mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]);
+        material->normalScale = mat.normalTexture.scale;
+        material->occlusionStrength = mat.occlusionTexture.strength;
         if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
             const auto& texture = model.textures[mat.pbrMetallicRoughness.baseColorTexture.index];
             if (texture.source >= 0) {

@@ -39,10 +39,11 @@ struct PointLight {
 
 const float PI = 3.1415927;
 const float gamma = 2.2;
-DirLight mainLight = { vec3(-20.0, 1.0, -5.0), vec3(1.0, 1.0, 1.0), 2.0 };
+DirLight mainLight = { vec3(-20.0, 1.0, -5.0), vec3(1.0, 1.0, 1.0), 5.0 };
 PointLight auxLights[] = {
-    { vec3(0.0, -1.0, 0.0), vec3(1.0, 1.0, 1.0), 0.2 },
-    { vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), 5.2 },
+    { vec3(0.0, -1.0, 0.0), vec3(1.0, 0.0, 0.0), 1.5 },
+    { vec3(2.0, -1.0, 0.0), vec3(0.0, 1.0, 0.0), 1.5 },
+    { vec3(0.0, -1.0, 2.0), vec3(0.0, 0.0, 1.0), 1.5 },
 };
 
 vec3 CookTorranceBRDF(vec3 norm, vec3 lightDir, vec3 viewDir, Surface surf);
@@ -56,7 +57,7 @@ vec3 FresnelSchlick(float nh, vec3 f0);
 vec3 CalculateDirectionalLight(DirLight light, vec3 norm, vec3 viewDir, Surface surf) {
     vec3 lightDir = normalize(-light.direction);
     vec3 radiance = light.color * light.intensity;
-    return CookTorranceBRDF(norm, lightDir, viewDir, surf) * radiance * clamp(dot(norm, lightDir), 0.0, 1.0);
+    return CookTorranceBRDF(norm, lightDir, viewDir, surf) * radiance * max(dot(norm, lightDir), 0.0);
 }
 
 vec3 CalculatePointLight(PointLight light, vec3 norm, vec3 viewDir, Surface surf) {
@@ -64,7 +65,7 @@ vec3 CalculatePointLight(PointLight light, vec3 norm, vec3 viewDir, Surface surf
     float dist = distance(light.position, frag_pos);
     float attenuation = 1.0 / (dist * dist);
     vec3 radiance = attenuation * light.color * light.intensity;
-    return CookTorranceBRDF(norm, lightDir, viewDir, surf) * radiance * clamp(dot(norm, lightDir), 0.0, 1.0);
+    return CookTorranceBRDF(norm, lightDir, viewDir, surf) * radiance * max(dot(norm, lightDir), 0.0);
 }
 
 // vec3 CalculateIBL(vec3 norm, vec3 viewDir, Surface surf) {
@@ -114,7 +115,7 @@ vec3 FresnelSchlick(float vh, vec3 f0) {
 }
 
 void main() {
-    vec3 albedo = texture(albedoMap, tex_uv).rgb;
+    vec3 albedo = pow(texture(albedoMap, tex_uv).rgb, vec3(gamma));
     vec3 normal = texture(normalMap, tex_uv).rgb * 2.0 - 1.0;
     vec3 metallicRoughness = texture(metallicRoughnessMap, tex_uv).rgb;
     float metallic = metallicRoughness.b;
@@ -129,22 +130,23 @@ void main() {
         metallic
     };
 
+    // TODO: make sure normal mapping is correct
     mat3 TBN = mat3(
         normalize(frag_tangent),
         normalize(frag_bitangent),
-        -normalize(frag_normal)
+        normalize(frag_normal)
     );
-    // TODO: normal mapping
-    vec3 norm = normalize(frag_normal);
+    vec3 norm = normalize(TBN * normal);
     vec3 viewDir = normalize(camera_pos - frag_pos);
 
     vec3 result = vec3(0.0);
     result += CalculateDirectionalLight(mainLight, norm, viewDir, surf);
-    // result += CalculatePointLight(auxLights[0], norm, viewDir, surf);
-    result += vec3(0.1) * surf.ao * surf.color;
+    result += CalculatePointLight(auxLights[0], norm, viewDir, surf);
+    result += CalculatePointLight(auxLights[1], norm, viewDir, surf);
+    result += CalculatePointLight(auxLights[2], norm, viewDir, surf);
+    result += vec3(0.15) * surf.ao * surf.color;
+    result += emissive;
     // result += CalculateIBL(norm, viewDir, surf);
-
-    result = pow(result, vec3(1.0 / gamma));
 
     Color = vec4(result, 1.0);
 }

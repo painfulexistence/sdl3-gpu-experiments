@@ -95,7 +95,7 @@ int main(int argc, char* args[]) {
         return -1;
     }
 
-    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 720, 720, SDL_WINDOW_RESIZABLE);
+    SDL_Window* window = SDL_CreateWindow("SDL3 GPU Demo", 1280, 720, SDL_WINDOW_RESIZABLE);
     SDL_GetWindowSizeInPixels(window, &windowWidth, &windowHeight);
 
     SDL_GPUDevice* device = SDL_CreateGPUDevice(SDL_ShaderCross_GetSPIRVShaderFormats(), true, NULL);
@@ -672,7 +672,7 @@ int main(int argc, char* args[]) {
         .height = static_cast<uint32_t>(windowHeight),
         .layer_count_or_depth = 1,
         .num_levels = 1,
-        .sample_count = msaaSampleCount,
+        .sample_count = msaaSampleCount, // Must match color target sample count
     };
     SDL_GPUTexture* depthTexture = SDL_CreateGPUTexture(device, &depthTextureCreateInfo);
 
@@ -993,7 +993,7 @@ int main(int argc, char* args[]) {
         glm::vec3(0.0f, 0.0f, -5.0f),
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
-        glm::radians(120.0f),
+        glm::radians(90.0f),
         windowWidth / (float)windowHeight,
         0.1f,
         500.0f

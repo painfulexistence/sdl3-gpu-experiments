@@ -47,7 +47,8 @@ void Scene::PrintNode(const std::shared_ptr<Node>& node) {
 
 void Scene::Upload(SDL_GPUDevice* device) {
     for (const auto& image : images) {
-        image->texture = CreateTexture(image, device);
+        image->Prepare(device);
+        UploadTexture(image, device);
     }
     for (const auto& material : materials) {
         material->pipelineInfo.target_info = {
@@ -161,29 +162,8 @@ void Scene::UploadNode(const std::shared_ptr<Node>& node, SDL_GPUDevice* device)
     }
 }
 
-auto Scene::CreateTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* device) -> std::unique_ptr<SDL_GPUTexture, std::function<void(SDL_GPUTexture*)>> {
-    SDL_GPUTextureCreateInfo texCreateInfo = {
-        .type = SDL_GPU_TEXTURETYPE_2D,
-        .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
-        .width = static_cast<Uint32>(image->width),
-        .height = static_cast<Uint32>(image->height),
-        .layer_count_or_depth = 1,
-        .num_levels = 1,
-    };
-    if (image->component == 1) {
-        texCreateInfo.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
-    } else if (image->component == 2) {
-        texCreateInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8_UNORM;
-    } else if (image->component == 4) {
-        texCreateInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    } else {
-        SDL_Log("Unknown component count: %d", image->component);
-        return nullptr;
-    }
-    auto texture = std::unique_ptr<SDL_GPUTexture, std::function<void(SDL_GPUTexture*)>>(
-        SDL_CreateGPUTexture(device, &texCreateInfo),
-        [device](SDL_GPUTexture* tex) { SDL_ReleaseGPUTexture(device, tex); }
-    );
+// TODO: use Image API instead
+void Scene::UploadTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* device) {
     SDL_GPUTransferBufferCreateInfo transferInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size = static_cast<Uint32>(image->pixels.size())
@@ -202,7 +182,7 @@ auto Scene::CreateTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* de
         .offset = 0
     };
     SDL_GPUTextureRegion dst = {
-        .texture = texture.get(),
+        .texture = image->texture.get(),
         .layer = 0,
         .w = static_cast<Uint32>(image->width),
         .h = static_cast<Uint32>(image->height),
@@ -211,11 +191,10 @@ auto Scene::CreateTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* de
     SDL_UploadToGPUTexture(copyPass, &src, &dst, false);
 
     SDL_EndGPUCopyPass(copyPass);
+    image->GenerateMipmaps(cmd);
     SDL_SubmitGPUCommandBuffer(cmd);
 
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-
-    return texture; // TODO: why we don't need std::move here?
 }
 
 auto Scene::CreateBuffer(const void* data, size_t size, SDL_GPUBufferUsageFlags usage, SDL_GPUDevice* device) -> std::shared_ptr<SDL_GPUBuffer> {

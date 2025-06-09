@@ -8,8 +8,23 @@
 #include "image.hpp"
 
 
+enum class AlphaMode {
+    OPAQUE,
+    MASK,
+    BLEND,
+};
+
 struct Material {
     std::string name;
+    AlphaMode alphaMode;
+    float alphaCutoff;
+    bool doubleSided;
+    glm::vec4 baseColorFactor;
+    float normalScale;
+    float metallicFactor;
+    float roughnessFactor;
+    float occlusionStrength;
+    glm::vec3 emissiveFactor;
     std::shared_ptr<Image> albedoMap;
     std::shared_ptr<Image> normalMap;
     std::shared_ptr<Image> metallicRoughnessMap;
@@ -130,6 +145,6 @@ private:
     void UpdateNode(const std::shared_ptr<Node>& node, const glm::mat4& parentTransform);
     void ReleaseNode(const std::shared_ptr<Node>& node, SDL_GPUDevice* device);
 
-    auto CreateTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* device) -> std::unique_ptr<SDL_GPUTexture, std::function<void(SDL_GPUTexture*)>>;
+    void UploadTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* device);
     auto CreateBuffer(const void* data, size_t size, SDL_GPUBufferUsageFlags usage, SDL_GPUDevice* device) -> std::shared_ptr<SDL_GPUBuffer>;
 };
