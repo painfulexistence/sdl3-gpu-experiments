@@ -140,7 +140,7 @@ int main(int argc, char* args[]) {
 		return -1;
 	}
 
-    SDL_GPUShader* pbrFragmentShader = LoadShader(device, "PBR.frag", 5, 0, 0, 0);
+    SDL_GPUShader* pbrFragmentShader = LoadShader(device, "PBR.frag", 5, 1, 0, 0);
 	if (pbrFragmentShader == NULL) {
 		SDL_Log("Failed to create fragment shader!");
 		return -1;
@@ -494,17 +494,16 @@ int main(int argc, char* args[]) {
 	SDL_ReleaseGPUShader(device, particleFragmentShader);
 
     // Create textures & samplers
-    std::shared_ptr<SDL_Surface> img = LoadImage("res/textures/rick_roll.png");
-    SDL_GPUTextureCreateInfo imgTextureCreateInfo = {
-        .type = SDL_GPU_TEXTURETYPE_2D,
-        .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
-        .width = static_cast<Uint32>(img->w),
-        .height = static_cast<Uint32>(img->h),
-        .layer_count_or_depth = 1,
-        .num_levels = std::max(1u, static_cast<Uint32>(std::floor(std::log2(std::min(img->w, img->h))))),
+    std::unordered_map<std::string, std::shared_ptr<Image>> images = {
+        { "placeholder", LoadImage("images/rick_roll.png") },
+        { "default_albedo", LoadImage("images/default_albedo.png") },
+        { "default_norm", LoadImage("images/default_norm.png") },
+        { "default_orm", LoadImage("images/default_orm.png") },
+        { "default_emissive", LoadImage("images/default_emissive.png") },
     };
-    SDL_GPUTexture* imgTexture = SDL_CreateGPUTexture(device, &imgTextureCreateInfo);
+    for (auto& [name, img] : images) {
+        img->Prepare(device);
+    }
 
     int procTextureSize = 1024;
     SDL_GPUTextureCreateInfo procTextureCreateInfo = {
@@ -545,7 +544,7 @@ int main(int argc, char* args[]) {
     SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
 
     // Load scene
-    std::shared_ptr<Scene> sponza = LoadGLTF(device, "res/models/Sponza/Sponza.gltf");
+    std::shared_ptr<Scene> sponza = LoadGLTF(device, "models/Sponza/Sponza.gltf");
     // sponza->Print();
     sponza->Upload(device);
     auto simpleCube = CPUMesh::CreateCube();
@@ -789,23 +788,20 @@ int main(int argc, char* args[]) {
 	);
     quad.Stage(device, quadTransferBuffer);
 
+    constexpr Uint32 texTransferBufferSize = (1024 * 1024 * 4) * 6;
     SDL_GPUTransferBufferCreateInfo texTransferBufferCreateInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = static_cast<Uint32>(img->w * img->h * 4)
+        .size = texTransferBufferSize
     };
     SDL_GPUTransferBuffer* texTransferBuffer = SDL_CreateGPUTransferBuffer(
 		device,
         &texTransferBufferCreateInfo
 	);
-	SDL_Surface* texTransferData = reinterpret_cast<SDL_Surface*>(
-        SDL_MapGPUTransferBuffer(
-            device,
-            texTransferBuffer,
-            false
-        )
-	);
-    memcpy(texTransferData, img->pixels, img->w * img->h * 4);
-	SDL_UnmapGPUTransferBuffer(device, texTransferBuffer);
+    Uint32 texTransferOffset = 0;
+    for (auto& [name, img] : images) {
+        img->Stage(device, texTransferBuffer, texTransferOffset);
+        texTransferOffset += img->total_byte_count();
+    }
 
     SDL_GPUTransferBufferCreateInfo particleTransferBufferDesc = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -862,23 +858,11 @@ int main(int argc, char* args[]) {
 
     quad.Upload(device, copyPass, quadTransferBuffer);
 
-    SDL_GPUTextureTransferInfo texTransferInfo = {
-        .transfer_buffer = texTransferBuffer,
-        .offset = 0
-    };
-    SDL_GPUTextureRegion texTransferRegion = {
-        .texture = imgTexture,
-        .layer = 0,
-        .w = static_cast<Uint32>(img->w),
-        .h = static_cast<Uint32>(img->h),
-        .d = 1
-    };
-	SDL_UploadToGPUTexture(
-		copyPass,
-		&texTransferInfo,
-		&texTransferRegion,
-		false
-	);
+    texTransferOffset = 0;
+    for (auto& [name, img] : images) {
+        img->Upload(device, copyPass, texTransferBuffer, texTransferOffset);
+        texTransferOffset += img->total_byte_count();
+    }
 
     SDL_GPUTransferBufferLocation particleTransferLocation = {
         .transfer_buffer = particleTransferBuffer,
@@ -993,7 +977,9 @@ int main(int argc, char* args[]) {
 
 	SDL_EndGPUCopyPass(copyPass);
 
-    SDL_GenerateMipmapsForGPUTexture(cmd, imgTexture);
+    for (auto& [name, img] : images) {
+        img->GenerateMipmaps(cmd);
+    }
 
     SDL_SubmitGPUCommandBuffer(cmd);
 
@@ -1104,13 +1090,15 @@ int main(int argc, char* args[]) {
             .proj = camera.GetProjMatrix()
         };
 
+        glm::vec3 cameraPos = camera.GetEye();
+
         glm::vec2 uv = shaderParams.mousePosition / shaderParams.resolution;
         glm::vec3 ndc = glm::vec3(uv.x, uv.y, 1.0) * 2.0f - 1.0f;
         ndc.y = -ndc.y;
         glm::vec4 viewPosH = glm::inverse(camInfo.proj) * glm::vec4(ndc, 1.0);
         glm::vec3 viewPos = glm::vec3(viewPosH) / viewPosH.w;
         glm::vec3 worldPos = glm::vec3(glm::inverse(camInfo.view) * glm::vec4(viewPos, 1.0));
-        glm::vec3 ro = camera.GetEye();
+        glm::vec3 ro = cameraPos;
         glm::vec3 rd = glm::normalize(worldPos - ro);
         glm::vec3 attractorPos = ro + rd * 5.0f;
 
@@ -1369,6 +1357,7 @@ int main(int argc, char* args[]) {
 
                 // Draw Sponza
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+                SDL_PushGPUFragmentUniformData(cmd, 0, &cameraPos, sizeof(glm::vec3));
                 std::function<void(const std::shared_ptr<Node>&)> drawNode = [&](const std::shared_ptr<Node>& node) {
                     if (node->meshGroup) {
                         instance.model = node->worldTransform;
@@ -1386,10 +1375,6 @@ int main(int argc, char* args[]) {
                                 }
                                 if (mesh->vbos.size() < 4) {
                                     SDL_Log("vertex buffer count is less than 4");
-                                    continue;
-                                }
-                                if (mesh->material->albedoMap == nullptr || mesh->material->albedoMap->texture == nullptr) {
-                                    SDL_Log("albedo map is null");
                                     continue;
                                 }
                                 // for (const Uint32& idx : mesh->indices) {
@@ -1411,17 +1396,17 @@ int main(int argc, char* args[]) {
                                 //     SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
                                 // }
                                 SDL_BindGPUVertexBuffers(renderPass, 0, vertexBufferBindings.data(), static_cast<Uint32>(vertexBufferBindings.size()));
+                                bool hasAlbedo = mesh->material->albedoMap != nullptr && mesh->material->albedoMap->texture != nullptr;
+                                bool hasNormal = mesh->material->normalMap != nullptr && mesh->material->normalMap->texture != nullptr;
+                                bool hasMetallicRoughness = mesh->material->metallicRoughnessMap != nullptr && mesh->material->metallicRoughnessMap->texture != nullptr;
+                                bool hasOcclusion = mesh->material->occlusionMap != nullptr && mesh->material->occlusionMap->texture != nullptr;
+                                bool hasEmissive = mesh->material->emissiveMap != nullptr && mesh->material->emissiveMap->texture != nullptr;
                                 std::array<SDL_GPUTextureSamplerBinding, 5> textureSamplerBindings = {{
-                                    { .texture = mesh->material->albedoMap->texture, .sampler = sampler },
-                                    // { .texture = mesh->material->normalMap->texture, .sampler = sampler },
-                                    // { .texture = mesh->material->metallicRoughnessMap->texture, .sampler = sampler },
-                                    // { .texture = mesh->material->occlusionMap->texture, .sampler = sampler },
-                                    // { .texture = mesh->material->emissiveMap->texture, .sampler = sampler },
-                                    // { .texture = imgTexture, .sampler = sampler },
-                                    { .texture = imgTexture, .sampler = sampler },
-                                    { .texture = imgTexture, .sampler = sampler },
-                                    { .texture = imgTexture, .sampler = sampler },
-                                    { .texture = imgTexture, .sampler = sampler },
+                                    { .texture = hasAlbedo ? mesh->material->albedoMap->texture.get() : images["default_albedo"]->texture.get(), .sampler = sampler },
+                                    { .texture = hasNormal ? mesh->material->normalMap->texture.get() : images["default_norm"]->texture.get(), .sampler = sampler },
+                                    { .texture = hasMetallicRoughness ? mesh->material->metallicRoughnessMap->texture.get() : images["default_orm"]->texture.get(), .sampler = sampler },
+                                    { .texture = hasOcclusion ? mesh->material->occlusionMap->texture.get() : images["default_orm"]->texture.get(), .sampler = sampler },
+                                    { .texture = hasEmissive ? mesh->material->emissiveMap->texture.get() : images["default_emissive"]->texture.get(), .sampler = sampler },
                                 }};
                                 SDL_BindGPUFragmentSamplers(renderPass, 0, textureSamplerBindings.data(), textureSamplerBindings.size());
                                 if (mesh->indices.size() > 0) {
@@ -1502,6 +1487,11 @@ int main(int argc, char* args[]) {
     simpleCube.Release(device);
     quad.Release(device);
 
+    for (auto& [name, img] : images) {
+        img->Release(device);
+    }
+    images.clear();
+
     SDL_ReleaseGPUBuffer(device, instanceBuffer);
     SDL_ReleaseGPUBuffer(device, meshBuffer);
     SDL_ReleaseGPUBuffer(device, materialBuffer);
@@ -1530,7 +1520,6 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUGraphicsPipeline(device, tonemapPipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, particlePipeline);
 
-    SDL_ReleaseGPUTexture(device, imgTexture);
     SDL_ReleaseGPUTexture(device, procTexture);
     SDL_ReleaseGPUTexture(device, noiseTexture);
     SDL_ReleaseGPUSampler(device, sampler);

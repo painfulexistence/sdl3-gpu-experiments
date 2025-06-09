@@ -5,15 +5,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include "image.hpp"
 
-struct Image {
-    std::string uri;
-    Uint32 width;
-    Uint32 height;
-    Uint32 component;
-    std::vector<Uint8> pixels;
-    std::unique_ptr<SDL_GPUTexture, std::function<void(SDL_GPUTexture*)>> texture;
-};
 
 struct Material {
     std::string name;

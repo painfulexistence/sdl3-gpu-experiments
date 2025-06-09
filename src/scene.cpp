@@ -215,7 +215,7 @@ auto Scene::CreateTexture(const std::shared_ptr<Image>& image, SDL_GPUDevice* de
 
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
 
-    return texture;
+    return texture; // TODO: why we don't need std::move here?
 }
 
 auto Scene::CreateBuffer(const void* data, size_t size, SDL_GPUBufferUsageFlags usage, SDL_GPUDevice* device) -> std::shared_ptr<SDL_GPUBuffer> {

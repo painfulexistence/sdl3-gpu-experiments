@@ -1,5 +1,6 @@
 #pragma once
 #include <SDL3/SDL.h>
+#include "image.hpp"
 #include "scene.hpp"
 #include <memory>
 
@@ -26,7 +27,7 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
     Uint32 threadCountZ = 1
 );
 
-std::shared_ptr<SDL_Surface> LoadImage(const char* filename);
+std::shared_ptr<Image> LoadImage(const char* filename);
 
 std::shared_ptr<Scene> LoadGLTF(
     SDL_GPUDevice* device,

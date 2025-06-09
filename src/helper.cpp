@@ -136,19 +136,21 @@ std::shared_ptr<Image> LoadImage(const char* filename) {
         SDL_Log("Unknown texture format at %s\n", filePath.c_str());
         return nullptr;
     }
-    uint8_t* data = stbi_load(filename, &width, &height, &numChannels, 4);
-    if (data) {
-        auto image = SDL_CreateSurfaceFrom(width, height, desiredFormat, data, width * 32);
-        return std::shared_ptr<SDL_Surface>(
-            image,
-            [data](SDL_Surface* surf) {
-                SDL_DestroySurface(surf);
-                stbi_image_free(data);
-            }
-        );
-    } else {
+
+    uint8_t* data = stbi_load(filePath.c_str(), &width, &height, &numChannels, 4);
+    if (!data) {
+        SDL_Log("Failed to load image data at %s!\n", filePath.c_str());
         return nullptr;
     }
+    auto image = std::make_shared<Image>(Image {
+        .uri = filename,
+        .width = static_cast<Uint32>(width),
+        .height = static_cast<Uint32>(height),
+        .component = 4,
+        .pixels = std::vector<Uint8>(data, data + (width * height * 4))
+    });
+    stbi_image_free(data);
+    return image;
 }
 
 std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
@@ -456,7 +458,7 @@ std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {
         // pipeline creation
         SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
             .vertex_shader = LoadShader(device, "TBN.vert", 0, 2, 0, 0),
-            .fragment_shader = LoadShader(device, "PBR.frag", 5, 0, 0, 0),
+            .fragment_shader = LoadShader(device, "PBR.frag", 5, 1, 0, 0),
             .rasterizer_state = {
                 .fill_mode = SDL_GPU_FILLMODE_FILL,
                 .cull_mode = SDL_GPU_CULLMODE_BACK,

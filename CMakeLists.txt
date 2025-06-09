@@ -30,6 +30,7 @@ set(SOURCES
     src/helper.cpp
 	src/camera.cpp
 	src/geometry.cpp
+	src/image.cpp
 	src/scene.cpp
 )
 
