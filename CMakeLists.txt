@@ -6,10 +6,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build." FORCE)
 endif()
 
-if(NOT MSVC)
-    add_compile_options(-Werror=reorder-init-list)
-endif()
-
 set(FETCHCONTENT_QUIET FALSE)
 set(BUILD_SHARED_LIBS OFF)
 option(SDL_TEST_LIBRARY OFF)
