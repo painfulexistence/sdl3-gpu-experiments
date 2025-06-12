@@ -3,12 +3,7 @@
 My playground project for exploring and experimenting with SDL3 GPU APIs.
 
 ### Demo
-
-### Supported Platforms
-- Apple Silicon
-- Windows
-- Linux
-
+[Link](https://www.youtube.com/watch?v=7ok396p7lmg)
 
 ## Run the Project
 
