@@ -489,7 +489,7 @@ int main(int argc, char* args[]) {
 
     // Create textures & samplers
     std::unordered_map<std::string, std::shared_ptr<Image>> images = {
-        { "placeholder", LoadImage("images/rick_roll.png") },
+        // { "placeholder", LoadImage("images/rick_roll.png") },
         { "default_albedo", LoadImage("images/default_albedo.png") },
         { "default_norm", LoadImage("images/default_norm.png") },
         { "default_orm", LoadImage("images/default_orm.png") },
@@ -539,7 +539,6 @@ int main(int argc, char* args[]) {
 
     // Load scene
     std::shared_ptr<Scene> sponza = LoadGLTF(device, "models/Sponza/Sponza.gltf");
-    // std::shared_ptr<Scene> sponza = LoadGLTF(device, "models/IntelSponza/NewSponza_Main_glTF_003.gltf");
     // sponza->Print();
     sponza->Upload(device);
     auto simpleCube = CPUMesh::CreateCube();
@@ -550,14 +549,13 @@ int main(int argc, char* args[]) {
     });
     auto quad = CPUMesh::CreateQuad();
 
-    constexpr Uint32 numParticles = 2000000;
+    constexpr Uint32 numParticles = 50000;
     std::vector<Particle> particles(numParticles);
     for (auto& particle : particles) {
         float r = sqrt(rng.RandomFloat()) * 0.1f;
         float theta = rng.RandomFloat() * 2 * glm::pi<float>();
-        float spiral_offset = rng.RandomFloat() * 2.5f;
-        float x = r * cos(theta + spiral_offset) * windowHeight / windowWidth;
-        float y = r * sin(theta + spiral_offset);
+        float x = r * cos(theta) * windowHeight / windowWidth;
+        float y = r * sin(theta);
 
         particle.position = glm::vec3(x, y, 0);
         glm::vec3 tangent = glm::normalize(glm::vec3(-y, x, 0));
@@ -985,8 +983,8 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUTransferBuffer(device, particleTransferBuffer);
 
     Camera camera(
-        glm::vec3(0.0f, 0.0f, -5.0f),
-        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.5f, -5.0f),
+        glm::vec3(0.0f, 0.5f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
         glm::radians(60.0f),
         windowWidth / (float)windowHeight,
@@ -1347,7 +1345,7 @@ int main(int argc, char* args[]) {
                 SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
                 float angle = time * 0.5f;
                 auto instance = simpleCubeInstances[0];
-                instance.model = glm::rotate(glm::identity<glm::mat4>(), angle, glm::vec3(0.0f, 1.0f, -1.0f));
+                instance.model = glm::rotate(glm::translate(glm::mat4(1.0f), attractorPos), angle, glm::vec3(0.0f, 1.0f, -1.0f));
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
                 SDL_PushGPUVertexUniformData(cmd, 1, &instance, sizeof(SimpleInstance));
 
