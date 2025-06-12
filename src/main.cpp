@@ -332,6 +332,11 @@ int main(int argc, char* args[]) {
             .offset = 0,
         },
     }};
+    std::array<SDL_GPUColorTargetDescription, 1> colorTargetDescs = {{
+        {
+            .format = colorTargetFormat,
+        }
+    }};
 	SDL_GPUGraphicsPipelineCreateInfo gfxPipelineDesc = {
         .vertex_shader = simpleVertexShader,
 		.fragment_shader = simpleFragmentShader,
@@ -355,12 +360,8 @@ int main(int argc, char* args[]) {
             .enable_depth_write = true,
         },
         .target_info = {
-			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){
-                {
-				    .format = colorTargetFormat,
-			    }
-            },
-            .num_color_targets = 1,
+			.color_target_descriptions = colorTargetDescs.data(),
+            .num_color_targets = static_cast<Uint32>(colorTargetDescs.size()),
             .depth_stencil_format = depthTargetFormat,
             .has_depth_stencil_target = true,
 		},
@@ -405,6 +406,20 @@ int main(int argc, char* args[]) {
         SDL_Log("Failed to create pbr pipeline!");
         return -1;
     }
+    std::array<SDL_GPUColorTargetDescription, 1> particlePipelineColorTargetDescs = {{
+        {
+            .format = colorTargetFormat,
+            .blend_state = {
+                .src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+                .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_COLOR,
+                .color_blend_op = SDL_GPU_BLENDOP_ADD,
+                .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+                .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO,
+                .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+                .enable_blend = true,
+            }
+        }
+    }};
     gfxPipelineDesc.vertex_shader = particleVertexShader;
     gfxPipelineDesc.fragment_shader = particleFragmentShader;
     gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
@@ -416,21 +431,8 @@ int main(int argc, char* args[]) {
     // gfxPipelineDesc.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
     gfxPipelineDesc.rasterizer_state.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
     gfxPipelineDesc.target_info = {
-        .color_target_descriptions = (SDL_GPUColorTargetDescription[]){
-            {
-                .format = colorTargetFormat,
-                .blend_state = {
-                    .src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
-                    .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_COLOR,
-                    .color_blend_op = SDL_GPU_BLENDOP_ADD,
-                    .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
-                    .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO,
-                    .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
-                    .enable_blend = true,
-                }
-            }
-        },
-        .num_color_targets = 1,
+        .color_target_descriptions = particlePipelineColorTargetDescs.data(),
+        .num_color_targets = static_cast<Uint32>(particlePipelineColorTargetDescs.size()),
         .depth_stencil_format = depthTargetFormat,
         .has_depth_stencil_target = true,
     };
@@ -445,6 +447,11 @@ int main(int argc, char* args[]) {
         return -1;
     }
 
+    std::array<SDL_GPUColorTargetDescription, 1> tonemapPipelineColorTargetDescs = {{
+        {
+            .format = swapchainImageFormat,
+        }
+    }};
     SDL_GPUGraphicsPipelineCreateInfo tonemapPipelineDesc = {
         .vertex_shader = tonemapVertexShader,
 		.fragment_shader = tonemapFragmentShader,
@@ -464,10 +471,8 @@ int main(int argc, char* args[]) {
             .sample_count = SDL_GPU_SAMPLECOUNT_1
         },
         .target_info = {
-			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
-				.format = swapchainImageFormat,
-			}},
-            .num_color_targets = 1,
+			.color_target_descriptions = tonemapPipelineColorTargetDescs.data(),
+            .num_color_targets = static_cast<Uint32>(tonemapPipelineColorTargetDescs.size()),
 		},
     };
     SDL_GPUGraphicsPipeline* tonemapPipeline = SDL_CreateGPUGraphicsPipeline(device, &tonemapPipelineDesc);
@@ -1117,15 +1122,16 @@ int main(int argc, char* args[]) {
 
         // 1. compute pass
         SDL_Log("Begin procedural texture pass");
+        std::array<SDL_GPUStorageTextureReadWriteBinding, 1> procTextureStorageBindings = {{
+            {
+                .texture = procTexture,
+                .mip_level = 0,
+            }
+        }};
         SDL_GPUComputePass* procTexturePass = SDL_BeginGPUComputePass(
             cmd,
-            (SDL_GPUStorageTextureReadWriteBinding[]){
-                {
-                    .texture = procTexture,
-                    .mip_level = 0,
-                }
-            },
-            1,
+            procTextureStorageBindings.data(),
+            procTextureStorageBindings.size(),
             nullptr,
             0
         );
@@ -1136,14 +1142,15 @@ int main(int argc, char* args[]) {
 
         SDL_GenerateMipmapsForGPUTexture(cmd, procTexture);
 
+        std::array<SDL_GPUStorageTextureReadWriteBinding, 1> noiseTextureStorageBindings = {{
+            {
+                .texture = noiseTexture,
+            }
+        }};
         SDL_GPUComputePass* noiseTexturePass = SDL_BeginGPUComputePass(
             cmd,
-            (SDL_GPUStorageTextureReadWriteBinding[]){
-                {
-                    .texture = noiseTexture,
-                }
-            },
-            1,
+            noiseTextureStorageBindings.data(),
+            noiseTextureStorageBindings.size(),
             nullptr,
             0
         );
@@ -1170,16 +1177,17 @@ int main(int argc, char* args[]) {
         // SDL_DispatchGPUCompute(particleSingleBufferPass, (particles.size() + 255) / 256, 1, 1);
         // SDL_EndGPUComputePass(particleSingleBufferPass);
 
+        std::array<SDL_GPUStorageBufferReadWriteBinding, 1> particleForceStorageBindings = {{
+            {
+                .buffer = particleBuffer0,
+            }
+        }};
         SDL_GPUComputePass* particleForcePass = SDL_BeginGPUComputePass(
             cmd,
             nullptr,
             0,
-            (SDL_GPUStorageBufferReadWriteBinding[]){
-                {
-                    .buffer = particleBuffer0,
-                }
-            },
-            1
+            particleForceStorageBindings.data(),
+            particleForceStorageBindings.size()
         );
         SDL_BindGPUComputePipeline(particleForcePass, particleForcePipeline);
         SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
@@ -1188,16 +1196,17 @@ int main(int argc, char* args[]) {
         SDL_DispatchGPUCompute(particleForcePass, (particles.size() + 255) / 256, 1, 1);
         SDL_EndGPUComputePass(particleForcePass);
 
+        std::array<SDL_GPUStorageBufferReadWriteBinding, 1> particleIntegrateStorageBindings = {{
+            {
+                .buffer = particleBuffer0,
+            }
+        }};
         SDL_GPUComputePass* particleIntegratePass = SDL_BeginGPUComputePass(
             cmd,
             nullptr,
             0,
-            (SDL_GPUStorageBufferReadWriteBinding[]){
-                {
-                    .buffer = particleBuffer0,
-                }
-            },
-            1
+            particleIntegrateStorageBindings.data(),
+            particleIntegrateStorageBindings.size()
         );
         SDL_BindGPUComputePipeline(particleIntegratePass, particleIntegratePipeline);
         SDL_PushGPUComputeUniformData(cmd, 0, &shaderParams, sizeof(ShaderParams));
@@ -1477,12 +1486,16 @@ int main(int argc, char* args[]) {
             SDL_EndGPURenderPass(tonemapPass);
 
             SDL_GPUBlitInfo blitInfo = {
-				.source.texture = tonemappedTexture,
-				.source.w = static_cast<Uint32>(windowWidth),
-				.source.h = static_cast<Uint32>(windowHeight),
-				.destination.texture = swapchainTexture,
-				.destination.w = static_cast<Uint32>(windowWidth),
-				.destination.h = static_cast<Uint32>(windowHeight),
+                .source = {
+                    .texture = tonemappedTexture,
+                    .w = static_cast<Uint32>(windowWidth),
+                    .h = static_cast<Uint32>(windowHeight),
+                },
+                .destination = {
+                    .texture = swapchainTexture,
+                    .w = static_cast<Uint32>(windowWidth),
+                    .h = static_cast<Uint32>(windowHeight),
+                },
 				.load_op = SDL_GPU_LOADOP_DONT_CARE,
 				.filter = SDL_GPU_FILTER_LINEAR
 			};
