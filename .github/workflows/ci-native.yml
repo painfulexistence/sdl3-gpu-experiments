@@ -56,17 +56,18 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev libglu1-mesa-dev pkg-config
+          sudo apt-get install -y cmake glslang-tools
 
       - name: Install CMake on macOS
         if: matrix.os == 'macos-latest'
         run: |
-          brew install cmake
+          brew install cmake glslang
 
       - name: Install CMake on Windows
         if: matrix.os == 'windows-latest'
         run: |
           choco install cmake.portable
+          choco install glslang
 
       - name: CMake Configure on Unix
         if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
