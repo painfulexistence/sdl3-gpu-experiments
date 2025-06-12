@@ -1,12 +1,13 @@
 # SDL3 GPU Experiments
-[![macOS](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-macos.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-macos.yml)
-[![Linux](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-linux.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-linux.yml)
-[![Windows](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-windows.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-windows.yml)
+[![macOS CI badge](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-macos.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-macos.yml)
+[![Linux CI badge](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-linux.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-linux.yml)
+[![Windows CI badge](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-windows.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-windows.yml)
 ![gltf viewer screenshot](.github/media/pbr-sponza-demo.png)
 My playground project for exploring and experimenting with SDL3 GPU APIs.
 
 ### Demo
-[Link](https://www.youtube.com/watch?v=7ok396p7lmg)
+[Sponza](https://www.youtube.com/watch?v=7ok396p7lmg)
+[Compute Particles](https://www.youtube.com/watch?v=-IVx_nz232Y)
 
 ## Run the Project
 
@@ -29,7 +30,7 @@ cmake --preset=dev
 cmake --build --preset=dev
 ```
 
-## Running
+### Running
 ```sh
 ./build/Debug/main
 ```
