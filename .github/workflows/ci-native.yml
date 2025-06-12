@@ -76,7 +76,7 @@ jobs:
           choco install cmake.portable
           curl -L -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip
           tar -xf glslang.zip
-          echo "${{ github.workspace }}/glslang-master-windows-Release/bin" >> $GITHUB_PATH
+          echo "$PWD/glslang-master-windows-Release/bin" >> $GITHUB_PATH
 
       - name: CMake Configure on Unix
         if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'

@@ -233,50 +233,50 @@ int main(int argc, char* args[]) {
     std::array<SDL_GPUVertexBufferDescription, 1> simpleVertexBufferDescs = {{
         {
             .slot = 0,
+            .pitch = sizeof(PositionTextureVertex),
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
             .instance_step_rate = 0,
-            .pitch = sizeof(PositionTextureVertex)
         }
     }};
     std::array<SDL_GPUVertexAttribute, 2> simpleVertexAttributes = {{
         {
+            .location = 0,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .location = 0,
             .offset = 0
         },
         {
+            .location = 1,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-            .location = 1,
             .offset = sizeof(float) * 3
         }
     }};
     std::array<SDL_GPUVertexBufferDescription, 1> vertexBufferDescs = {{
         {
             .slot = 0,
+            .pitch = sizeof(Vertex),
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
             .instance_step_rate = 0,
-            .pitch = sizeof(Vertex)
         }
     }};
     std::array<SDL_GPUVertexAttribute, 3> vertexAttributes = {{
         {
+            .location = 0,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .location = 0,
             .offset = 0
         },
         {
+            .location = 1,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .location = 1,
             .offset = sizeof(float) * 3
         },
         {
+            .location = 2,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-            .location = 2,
             .offset = sizeof(float) * 6
         }
     }};
@@ -349,6 +349,11 @@ int main(int argc, char* args[]) {
         .multisample_state = {
             .sample_count = msaaSampleCount
         },
+        .depth_stencil_state = {
+            .compare_op = SDL_GPU_COMPAREOP_LESS,
+            .enable_depth_test = true,
+            .enable_depth_write = true,
+        },
         .target_info = {
 			.color_target_descriptions = (SDL_GPUColorTargetDescription[]){
                 {
@@ -356,14 +361,9 @@ int main(int argc, char* args[]) {
 			    }
             },
             .num_color_targets = 1,
-            .has_depth_stencil_target = true,
             .depth_stencil_format = depthTargetFormat,
+            .has_depth_stencil_target = true,
 		},
-        .depth_stencil_state = {
-            .enable_depth_test = true,
-            .enable_depth_write = true,
-            .compare_op = SDL_GPU_COMPAREOP_LESS,
-        }
 	};
 	gfxPipelineDesc.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
 	SDL_GPUGraphicsPipeline* fillPipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
@@ -420,24 +420,24 @@ int main(int argc, char* args[]) {
             {
                 .format = colorTargetFormat,
                 .blend_state = {
-                    .enable_blend = true,
-                    .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
-                    .color_blend_op = SDL_GPU_BLENDOP_ADD,
                     .src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
-                    .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
                     .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_COLOR,
-                    .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO
+                    .color_blend_op = SDL_GPU_BLENDOP_ADD,
+                    .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+                    .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO,
+                    .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+                    .enable_blend = true,
                 }
             }
         },
         .num_color_targets = 1,
-        .has_depth_stencil_target = true,
         .depth_stencil_format = depthTargetFormat,
+        .has_depth_stencil_target = true,
     };
     gfxPipelineDesc.depth_stencil_state = {
+        .compare_op = SDL_GPU_COMPAREOP_LESS,
         .enable_depth_test = true,
         .enable_depth_write = false,
-        .compare_op = SDL_GPU_COMPAREOP_LESS,
     };
     SDL_GPUGraphicsPipeline* particlePipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
     if (particlePipeline == NULL) {
@@ -456,9 +456,9 @@ int main(int argc, char* args[]) {
 		},
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
+            .fill_mode = SDL_GPU_FILLMODE_FILL,
             .cull_mode = SDL_GPU_CULLMODE_BACK,
             .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
-            .fill_mode = SDL_GPU_FILLMODE_FILL
         },
         .multisample_state = {
             .sample_count = SDL_GPU_SAMPLECOUNT_1
@@ -1088,9 +1088,9 @@ int main(int argc, char* args[]) {
 
         ShaderParams shaderParams = {
             .resolution = glm::vec2(windowWidth, windowHeight),
+            .mousePosition = glm::vec2(mouseX, mouseY),
             .time = time,
             .deltaTime = deltaTime,
-            .mousePosition = glm::vec2(mouseX, mouseY)
         };
         CameraInfo camInfo = {
             .view = camera.GetViewMatrix(),
