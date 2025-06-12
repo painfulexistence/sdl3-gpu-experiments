@@ -1,5 +1,6 @@
 #include "image.hpp"
 #include <SDL3/SDL.h>
+#include <cmath>
 
 void Image::Prepare(SDL_GPUDevice* device) {
     num_levels = std::max(1u, static_cast<Uint32>(std::floor(std::log2(std::min(width, height)))));
