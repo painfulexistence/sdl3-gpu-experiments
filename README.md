@@ -1,5 +1,6 @@
-# SDL3 GLTF Viewer
+# SDL3 GPU Experiments
 ![gltf viewer screenshot](.github/media/pbr-sponza-demo.png)
+My playground project for exploring and experimenting with SDL3 GPU APIs.
 
 ### Demo
 
@@ -17,7 +18,7 @@
 ### Building
 1. Clone the repo
 ```sh
-git clone --recurse-submodules https://github.com/painfulexistence/sdl3-gltf-viewer.git
+git clone --recurse-submodules https://github.com/painfulexistence/sdl3-gpu-experiments.git
 ```
 2. Setup Vcpkg
 ```sh
