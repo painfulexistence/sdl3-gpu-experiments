@@ -6,8 +6,8 @@
 My playground project for exploring and experimenting with SDL3 GPU APIs.
 
 ### Demo
-[Sponza](https://www.youtube.com/watch?v=7ok396p7lmg)
-[Compute Particles](https://www.youtube.com/watch?v=-IVx_nz232Y)
+[Sponza](https://www.youtube.com/watch?v=7ok396p7lmg) <br/>
+[Compute Particles with Mouse Interaction](https://www.youtube.com/watch?v=-IVx_nz232Y) <br/>
 
 ## Run the Project
 
