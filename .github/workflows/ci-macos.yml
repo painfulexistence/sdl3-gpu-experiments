@@ -1,0 +1,60 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: [Debug, MinSizeRel]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: rlalik/setup-cpp-compiler@master
+        with:
+          compiler: latest
+
+      - uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Set strings
+        id: strings
+        shell: bash
+        run: |
+          echo "build-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+      - name: Install vcpkg
+        uses: actions/checkout@v4
+        with:
+          repository: "microsoft/vcpkg"
+          path: "vcpkg"
+
+      - name: Bootstrap vcpkg
+        run: |
+          ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh
+
+      - name: Install dependencies
+        run: |
+          brew install cmake glslang
+
+      - name: CMake Configure
+        run: >
+          cmake -G Ninja
+          -B ${{ steps.strings.outputs.build-dir }}
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
+          -S ${{ github.workspace }}
+
+      - name: CMake Build
+        run: cmake --build ${{ steps.strings.outputs.build-dir }}

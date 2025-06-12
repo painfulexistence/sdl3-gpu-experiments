@@ -10,12 +10,11 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
         build-type: [Debug, MinSizeRel]
 
     steps:
@@ -41,19 +40,11 @@ jobs:
           repository: "microsoft/vcpkg"
           path: "vcpkg"
 
-      - name: Bootstrap vcpkg on Unix
-        if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
+      - name: Bootstrap vcpkg
         run: |
           ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh
 
-      - name: Bootstrap vcpkg on Windows
-        if: matrix.os == 'windows-latest'
-        shell: cmd
-        run: |
-          ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
-
-      - name: Install dependencies on Ubuntu
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -65,32 +56,9 @@ jobs:
             libegl1-mesa-dev libdbus-1-dev libibus-1.0-dev libudev-dev \
             glslang-tools
 
-      - name: Install dependencies on macOS
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install cmake glslang
-
-      - name: Install dependencies on Windows
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install cmake.portable
-          curl -L -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip
-          tar -xf glslang.zip
-          echo "$PWD/glslang-master-windows-Release/bin" >> $GITHUB_PATH
-
-      - name: CMake Configure on Unix
-        if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
+      - name: CMake Configure
         run: >
           cmake -G Ninja
-          -B ${{ steps.strings.outputs.build-dir }}
-          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
-          -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
-          -S ${{ github.workspace }}
-
-      - name: CMake Configure on Windows
-        if: matrix.os == 'windows-latest'
-        run: >
-          cmake -G "Visual Studio 17 2022"
           -B ${{ steps.strings.outputs.build-dir }}
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
           -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
