@@ -22,7 +22,7 @@ git clone --recurse-submodules https://github.com/painfulexistence/sdl3-gpu-expe
 ```
 2. Setup Vcpkg
 ```sh
-cd sdl3-gltf-viewer
+cd sdl3-gpu-experiments
 ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 ```
 3. Run CMake

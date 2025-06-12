@@ -1,5 +1,5 @@
 {
-  "name": "test-sdl3",
+  "name": "sdl3-gpu-experiments",
   "version": "0.1.0",
   "dependencies": [
     "fmt",
