@@ -51,68 +51,74 @@ void Scene::Upload(SDL_GPUDevice* device) {
         UploadTexture(image, device);
     }
     for (const auto& material : materials) {
-        material->pipelineInfo.target_info = {
-            .color_target_descriptions = (SDL_GPUColorTargetDescription[]){{
+        std::array<SDL_GPUColorTargetDescription, 1> colorTargetDescs = {{
+            {
                 .format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT,
-            }},
-            .num_color_targets = 1,
+            }
+        }};
+        material->pipelineInfo.target_info = {
+            .color_target_descriptions = colorTargetDescs.data(),
+            .num_color_targets = static_cast<Uint32>(colorTargetDescs.size()),
         };
         // TODO: create pipeline variants for different vertex layouts
+        std::array<SDL_GPUVertexBufferDescription, 4> vertexBufferDescs = {{
+            {
+                .slot = 0,
+                .pitch = sizeof(glm::vec3),
+                .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+                .instance_step_rate = 0,
+            },
+            {
+                .slot = 1,
+                .pitch = sizeof(glm::vec2),
+                .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+                .instance_step_rate = 0,
+            },
+            {
+                .slot = 2,
+                .pitch = sizeof(glm::vec3),
+                .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+                .instance_step_rate = 0,
+            },
+            {
+                .slot = 3,
+                .pitch = sizeof(glm::vec3),
+                .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+                .instance_step_rate = 0,
+            },
+        }};
+        std::array<SDL_GPUVertexAttribute, 4> vertexAttributes = {{
+            {
+                .location = 0,
+                .buffer_slot = 0,
+                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                .offset = 0,
+            },
+            {
+                .location = 1,
+                .buffer_slot = 1,
+                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+                .offset = 0,
+            },
+            {
+                .location = 2,
+                .buffer_slot = 2,
+                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                .offset = 0,
+            },
+            {
+                .location = 3,
+                .buffer_slot = 3,
+                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                .offset = 0,
+            },
+        }};
+
         material->pipelineInfo.vertex_input_state = (SDL_GPUVertexInputState){
-            .vertex_buffer_descriptions = (SDL_GPUVertexBufferDescription[]){
-                {
-                    .slot = 0,
-                    .pitch = sizeof(glm::vec3),
-                    .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                    .instance_step_rate = 0,
-                },
-                {
-                    .slot = 1,
-                    .pitch = sizeof(glm::vec2),
-                    .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                    .instance_step_rate = 0,
-                },
-                {
-                    .slot = 2,
-                    .pitch = sizeof(glm::vec3),
-                    .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                    .instance_step_rate = 0,
-                },
-                {
-                    .slot = 3,
-                    .pitch = sizeof(glm::vec3),
-                    .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                    .instance_step_rate = 0,
-                },
-            },
-            .num_vertex_buffers = 4,
-            .vertex_attributes = (SDL_GPUVertexAttribute[]){
-                {
-                    .location = 0,
-                    .buffer_slot = 0,
-                    .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                    .offset = 0,
-                },
-                {
-                    .location = 1,
-                    .buffer_slot = 1,
-                    .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-                    .offset = 0,
-                },
-                {
-                    .location = 2,
-                    .buffer_slot = 2,
-                    .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                    .offset = 0,
-                },
-                {
-                    .location = 3,
-                    .buffer_slot = 3,
-                    .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                    .offset = 0,
-                },
-            },
-            .num_vertex_attributes = 4,
+            .vertex_buffer_descriptions = vertexBufferDescs.data(),
+            .num_vertex_buffers = static_cast<Uint32>(vertexBufferDescs.size()),
+            .vertex_attributes = vertexAttributes.data(),
+            .num_vertex_attributes = static_cast<Uint32>(vertexAttributes.size()),
         };
         material->pipelineInfo.multisample_state = {
             .sample_count = SDL_GPU_SAMPLECOUNT_4
