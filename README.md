@@ -1,7 +1,7 @@
 # SDL3 GPU Experiments
-[![macOS](https://github.com/painfulexistence//actions/workflows/ci-macos.yml/badge.svg?branch=main)](https://github.com/painfulexistence/create-cxx/actions/workflows/ci-macos.yml)
-[![Linux](https://github.com/painfulexistence//actions/workflows/ci-linux.yml/badge.svg?branch=main)](https://github.com/painfulexistence/create-cxx/actions/workflows/ci-linux.yml)
-[![Windows](https://github.com/painfulexistence//actions/workflows/ci-windows.yml/badge.svg?branch=main)](https://github.com/painfulexistence/create-cxx/actions/workflows/ci-windows.yml)
+[![macOS](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-macos.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-macos.yml)
+[![Linux](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-linux.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-linux.yml)
+[![Windows](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-windows.yml/badge.svg?branch=main)](https://github.com/painfulexistence/sdl3-gpu-experiments/actions/workflows/ci-windows.yml)
 ![gltf viewer screenshot](.github/media/pbr-sponza-demo.png)
 My playground project for exploring and experimenting with SDL3 GPU APIs.
 
