@@ -56,7 +56,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y
+          sudo apt-get install -y \
             build-essential make cmake \
             pkg-config ninja-build gnome-desktop-testing libasound2-dev libpulse-dev \
             libaudio-dev libjack-dev libsndio-dev libx11-dev libxext-dev \
@@ -74,9 +74,9 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           choco install cmake.portable
-          curl -L -o glslang.zip https://github.com/KhronosGroup/glslang/archive/refs/tags/15.3.0.zip
+          curl -L -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip
           tar -xf glslang.zip
-          echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
+          echo "${{ github.workspace }}/glslang-master-windows-Release/bin" >> $GITHUB_PATH
 
       - name: CMake Configure on Unix
         if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
