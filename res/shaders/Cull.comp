@@ -1,10 +1,13 @@
 #version 450
 
+// GPU-driven pass 2/4 - Cull + count.
+// Frustum-tests every instance against the camera. Survivors are flagged and
+// counted per mesh (commands[meshID].instanceCount) so the next pass can turn
+// those counts into contiguous instance ranges.
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-layout(set = 2, binding = 0) uniform CameraInfo {
-    mat4 view;
-    mat4 proj;
-};
+
+const float BASE_RADIUS = 2.0; // conservative world-space bounding radius of a unit mesh
 
 struct Instance {
     mat4 model;
@@ -12,27 +15,51 @@ struct Instance {
     uint materialID;
 };
 
+struct DrawCommand {
+    uint vertexCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint firstInstance;
+};
+
 layout(std430, set = 0, binding = 0) readonly buffer InstanceBuffer {
     Instance instances[];
 };
 
-layout(std430, set = 1, binding = 0) buffer VisibilityBuffer {
-    uint visibleIndices[];
+layout(std430, set = 1, binding = 0) buffer CommandBuffer {
+    DrawCommand commands[];
 };
 
-layout(std430, set = 1, binding = 1) coherent buffer CounterBuffer {
-    uint visibleCount;
+layout(std430, set = 1, binding = 1) buffer VisibilityBuffer {
+    uint visibleFlags[];
 };
 
-bool isVisible(Instance instance) {
-    // vec4 center = instance.model * vec4(0.0, 0.0, 0.0, 1.0);
-    // float radius = instance.radius;
+layout(set = 2, binding = 0) uniform CullInfo {
+    mat4 viewProj; // proj * view (glm default: OpenGL clip depth [-1, 1])
+};
 
-    // for (int i = 0; i < 6; ++i) {
-    //     vec4 plane = frustumPlanes[i];
-    //     if (dot(plane.xyz, center.xyz) + plane.w < -radius)
-    //         return false;
-    // }
+// Gribb-Hartmann frustum plane extraction. GLSL matrices are column-major, so
+// row r of the matrix is (m[0][r], m[1][r], m[2][r], m[3][r]).
+bool frustumTest(vec3 center, float radius) {
+    vec4 rx = vec4(viewProj[0].x, viewProj[1].x, viewProj[2].x, viewProj[3].x);
+    vec4 ry = vec4(viewProj[0].y, viewProj[1].y, viewProj[2].y, viewProj[3].y);
+    vec4 rz = vec4(viewProj[0].z, viewProj[1].z, viewProj[2].z, viewProj[3].z);
+    vec4 rw = vec4(viewProj[0].w, viewProj[1].w, viewProj[2].w, viewProj[3].w);
+
+    vec4 planes[6];
+    planes[0] = rw + rx; // left
+    planes[1] = rw - rx; // right
+    planes[2] = rw + ry; // bottom
+    planes[3] = rw - ry; // top
+    planes[4] = rw + rz; // near (OpenGL depth convention)
+    planes[5] = rw - rz; // far
+
+    for (int i = 0; i < 6; ++i) {
+        vec4 p = planes[i];
+        float len = length(p.xyz);
+        if (len > 0.0) p /= len;
+        if (dot(p.xyz, center) + p.w < -radius) return false;
+    }
     return true;
 }
 
@@ -40,8 +67,14 @@ void main() {
     uint id = gl_GlobalInvocationID.x;
     if (id >= instances.length()) return;
 
-    if (isVisible(instances[id])) {
-        uint index = atomicAdd(visibleCount, 1);
-        visibleIndices[index] = id;
+    Instance inst = instances[id];
+    vec3 center = vec3(inst.model[3]);
+    float scale = length(vec3(inst.model[0])); // uniform-scale approximation
+    float radius = BASE_RADIUS * max(scale, 1e-4);
+
+    bool visible = frustumTest(center, radius);
+    visibleFlags[id] = visible ? 1u : 0u;
+    if (visible) {
+        atomicAdd(commands[inst.meshID].instanceCount, 1u);
     }
 }

@@ -50,14 +50,16 @@ struct MaterialInfo {
     float roughness;
 };
 
-// We're using SDL_GPUIndexedIndirectDrawCommand directly
-// struct DrawCommand {
-//     Uint32 indexCount;
-//     Uint32 instanceCount;
-//     Uint32 firstIndex;
-//     Uint32 baseVertex;
-//     Uint32 baseInstance;
-// };
+// GPU-driven rendering uses SDL_GPUIndirectDrawCommand (non-indexed) directly.
+// The vertex shader pulls indices/vertices from storage buffers, so num_vertices
+// is the mesh's index count and first_instance points into the compacted
+// instance buffer. Layout (matches the GLSL DrawCommand struct):
+//   struct SDL_GPUIndirectDrawCommand {
+//       Uint32 num_vertices;   // = mesh index count
+//       Uint32 num_instances;  // = visible instances of this mesh
+//       Uint32 first_vertex;   // = 0
+//       Uint32 first_instance; // = exclusive prefix sum offset into compacted buffer
+//   };
 
 struct Particle {
     alignas(16) glm::vec3 position;
@@ -195,28 +197,31 @@ int main(int argc, char* args[]) {
         0, 2, 0, 0, 1, 0, 256, 1, 1
     );
 
+    // GPU-driven rendering: reset -> cull+count -> build offsets -> scatter.
+    // Resource counts are (samplers, ro storage textures, ro storage buffers,
+    // rw storage textures, rw storage buffers, uniform buffers, threadX,Y,Z).
+    SDL_GPUComputePipeline* resetPipeline = CreateComputePipelineFromShader(
+        device,
+        "Reset.comp",
+        0, 0, 1, 0, 2, 0, 64, 1, 1   // ro: meshInfos; rw: commands, writeCursors
+    );
+
     SDL_GPUComputePipeline* cullingPipeline = CreateComputePipelineFromShader(
 	    device,
 	    "Cull.comp",
-        0, 1, 1, 0, 2, 0, 64, 1, 1
+        0, 0, 1, 0, 2, 1, 64, 1, 1   // ro: instances; rw: commands, visibleFlags; ubo: viewProj
     );
 
-    SDL_GPUComputePipeline* commandBuildingPipeline = CreateComputePipelineFromShader(
+    SDL_GPUComputePipeline* buildCommandsPipeline = CreateComputePipelineFromShader(
 	    device,
-	    "CommandBuild.comp",
-        0, 0, 4, 0, 1, 0, 64, 1, 1
+	    "BuildCommands.comp",
+        0, 0, 0, 0, 1, 0, 1, 1, 1    // rw: commands (single serial invocation)
     );
 
-    SDL_GPUComputePipeline* prefixSumPipeline = CreateComputePipelineFromShader(
+    SDL_GPUComputePipeline* scatterPipeline = CreateComputePipelineFromShader(
 	    device,
-	    "SerializedPrefixSum.comp",
-        0, 0, 0, 0, 2, 0, 1, 1, 1
-    );
-
-    SDL_GPUComputePipeline* resetCounterPipeline = CreateComputePipelineFromShader(
-        device,
-        "ResetCounter.comp",
-        0, 0, 0, 0, 1, 0, 1, 1, 1
+	    "Scatter.comp",
+        0, 0, 3, 0, 2, 0, 64, 1, 1   // ro: instances, visibleFlags, commands; rw: writeCursors, compacted
     );
 
     // Create gfx pipelines
@@ -381,11 +386,14 @@ int main(int argc, char* args[]) {
     gfxPipelineDesc.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     gfxPipelineDesc.vertex_shader = uberVertexShader;
     gfxPipelineDesc.fragment_shader = uberFragmentShader;
+    // Uber.vert is a pure vertex-pulling shader (no vertex input attributes):
+    // it reads vertices, indices and instances from storage buffers, so the
+    // pipeline must declare an empty vertex input state.
     gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
-		.vertex_buffer_descriptions = vertexBufferDescs.data(),
-        .num_vertex_buffers = static_cast<Uint32>(vertexBufferDescs.size()),
-		.vertex_attributes = vertexAttributes.data(),
-        .num_vertex_attributes = static_cast<Uint32>(vertexAttributes.size()),
+		.vertex_buffer_descriptions = nullptr,
+        .num_vertex_buffers = 0,
+		.vertex_attributes = nullptr,
+        .num_vertex_attributes = 0,
 	};
     SDL_GPUGraphicsPipeline* uberPipeline = SDL_CreateGPUGraphicsPipeline(device, &gfxPipelineDesc);
     if (uberPipeline == NULL) {
@@ -593,8 +601,9 @@ int main(int argc, char* args[]) {
     std::array<MaterialInfo, numMaterials> materialInfos = {};
     std::array<Uint32, numInstances> visibleInstanceIndices = {};
     Uint32 visibleCounter = 0;
-    std::array<SDL_GPUIndexedIndirectDrawCommand, numDrawCommands> drawCommands = {};
-    std::array<Uint32, numDrawCommands> prefixSums = {};
+    std::array<SDL_GPUIndirectDrawCommand, numDrawCommands> drawCommands = {};
+    std::array<Uint32, numMeshes> writeCursors = {};       // per-mesh atomic scatter cursor
+    std::array<Uint32, numInstances> compactedInstances = {}; // visible instance indices, grouped by mesh
 
     for (int i = 0; i < instances.size(); i++) {
         instances[i] = {
@@ -633,8 +642,9 @@ int main(int argc, char* args[]) {
     Uint32 materialBufferSize = sizeof(MaterialInfo) * materialInfos.size();
     Uint32 visibilityBufferSize = sizeof(Uint32) * visibleInstanceIndices.size();
     Uint32 visibleCounterBufferSize = sizeof(Uint32);
-    Uint32 drawCommandBufferSize = sizeof(SDL_GPUIndexedIndirectDrawCommand) * drawCommands.size();
-    Uint32 prefixSumBufferSize = sizeof(Uint32) * prefixSums.size();
+    Uint32 drawCommandBufferSize = sizeof(SDL_GPUIndirectDrawCommand) * drawCommands.size();
+    Uint32 writeCursorBufferSize = sizeof(Uint32) * writeCursors.size();
+    Uint32 compactedInstanceBufferSize = sizeof(Uint32) * compactedInstances.size();
 
     Uint32 vertexBufferOffset = 0;
     Uint32 indexBufferOffset = vertexBufferOffset + vertexBufferSize;
@@ -644,9 +654,10 @@ int main(int argc, char* args[]) {
     Uint32 visibilityBufferOffset = materialBufferOffset + materialBufferSize;
     Uint32 visibleCounterBufferOffset = visibilityBufferOffset + visibilityBufferSize;
     Uint32 drawCommandBufferOffset = visibleCounterBufferOffset + visibleCounterBufferSize;
-    Uint32 prefixSumBufferOffset = drawCommandBufferOffset + drawCommandBufferSize;
+    Uint32 writeCursorBufferOffset = drawCommandBufferOffset + drawCommandBufferSize;
+    Uint32 compactedInstanceBufferOffset = writeCursorBufferOffset + writeCursorBufferSize;
 
-    Uint32 totalBufferSize = prefixSumBufferOffset + prefixSumBufferSize;
+    Uint32 totalBufferSize = compactedInstanceBufferOffset + compactedInstanceBufferSize;
 
     // Create render targets
     SDL_Log("Create render targets");
@@ -754,13 +765,19 @@ int main(int argc, char* args[]) {
     };
     SDL_GPUBuffer* drawCommandBuffer = SDL_CreateGPUBuffer(device, &drawCommandBufferDesc);
 
-    SDL_GPUBufferCreateInfo prefixSumBufferDesc = {
+    SDL_GPUBufferCreateInfo writeCursorBufferDesc = {
         .usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE,
-        .size = prefixSumBufferSize
+        .size = writeCursorBufferSize
     };
-    SDL_GPUBuffer* prefixSumBuffer = SDL_CreateGPUBuffer(device, &prefixSumBufferDesc);
+    SDL_GPUBuffer* writeCursorBuffer = SDL_CreateGPUBuffer(device, &writeCursorBufferDesc);
 
-    if (vertexBuffer == NULL || indexBuffer == NULL || instanceBuffer == NULL || meshBuffer == NULL || materialBuffer == NULL || visibilityBuffer == NULL || visibleCounterBuffer == NULL || drawCommandBuffer == NULL || prefixSumBuffer == NULL) {
+    SDL_GPUBufferCreateInfo compactedInstanceBufferDesc = {
+        .usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
+        .size = compactedInstanceBufferSize
+    };
+    SDL_GPUBuffer* compactedInstanceBuffer = SDL_CreateGPUBuffer(device, &compactedInstanceBufferDesc);
+
+    if (vertexBuffer == NULL || indexBuffer == NULL || instanceBuffer == NULL || meshBuffer == NULL || materialBuffer == NULL || visibilityBuffer == NULL || visibleCounterBuffer == NULL || drawCommandBuffer == NULL || writeCursorBuffer == NULL || compactedInstanceBuffer == NULL) {
         SDL_Log("Failed to create SSBOs");
         return -1;
     }
@@ -843,7 +860,7 @@ int main(int argc, char* args[]) {
     memcpy(&ssboTransferData[materialBufferOffset], materialInfos.data(), materialBufferSize);
     memcpy(&ssboTransferData[visibilityBufferOffset], visibleInstanceIndices.data(), visibilityBufferSize);
     memcpy(&ssboTransferData[visibleCounterBufferOffset], &visibleCounter, visibleCounterBufferSize);
-    memcpy(&ssboTransferData[prefixSumBufferOffset], prefixSums.data(), prefixSumBufferSize);
+    memcpy(&ssboTransferData[writeCursorBufferOffset], writeCursors.data(), writeCursorBufferSize);
     memcpy(&ssboTransferData[drawCommandBufferOffset], drawCommands.data(), drawCommandBufferSize);
 	SDL_UnmapGPUTransferBuffer(device, ssboTransferBuffer);
 
@@ -954,9 +971,9 @@ int main(int argc, char* args[]) {
         &ssboTransferRegion,
         false
     );
-    ssboTransferInfo.offset = prefixSumBufferOffset;
-    ssboTransferRegion.buffer = prefixSumBuffer;
-    ssboTransferRegion.size = prefixSumBufferSize;
+    ssboTransferInfo.offset = writeCursorBufferOffset;
+    ssboTransferRegion.buffer = writeCursorBuffer;
+    ssboTransferRegion.size = writeCursorBufferSize;
     SDL_UploadToGPUBuffer(
         copyPass,
         &ssboTransferInfo,
@@ -1214,109 +1231,57 @@ int main(int argc, char* args[]) {
         SDL_DispatchGPUCompute(particleIntegratePass, (particles.size() + 255) / 256, 1, 1);
         SDL_EndGPUComputePass(particleIntegratePass);
 
-        // //TODO: zero out the counter buffer
-        // SDL_Log("Begin reset counter pass");
-        // SDL_GPUComputePass* resetPass = SDL_BeginGPUComputePass(
-        //     cmd,
-        //     nullptr,
-        //     0,
-        //     (SDL_GPUStorageBufferReadWriteBinding[]){
-        //         {
-        //             .buffer = visibleCounterBuffer,
-        //         }
-        //     },
-        //     1
-        // );
-        // SDL_BindGPUComputePipeline(resetPass, resetCounterPipeline);
-        // // SDL_BindGPUComputeStorageBuffers(resetPass, 0, &counterBuffer, 1);
-        // SDL_DispatchGPUCompute(resetPass, 1, 1, 1);
-        // SDL_EndGPUComputePass(resetPass);
+        // GPU-driven rendering: cull instances and build multi-draw indirect
+        // commands entirely on the GPU. SDL_gpu inserts the barriers between
+        // these compute passes automatically (each buffer is written with the
+        // default cycle=false so later passes see the previous pass's results).
+        glm::mat4 cullViewProj = camInfo.proj * camInfo.view;
 
-        // // 2. culling pass
-        // SDL_Log("Begin culling pass");
-        // SDL_GPUComputePass* cullingPass = SDL_BeginGPUComputePass(
-        //     cmd,
-        //     nullptr,
-        //     0,
-        //     (SDL_GPUStorageBufferReadWriteBinding[]){
-        //         {
-        //             .buffer = instanceBuffer,
-        //         },
-        //         {
-        //             .buffer = visibilityBuffer,
-        //         },
-        //         {
-        //             .buffer = visibleCounterBuffer,
-        //         }
-        //     },
-        //     3
-        // );
-        // SDL_BindGPUComputePipeline(cullingPass, cullingPipeline);
-        // CameraInfo camInfo = {
-        //     .view = camera.GetViewMatrix(),
-        //     .proj = camera.GetProjMatrix()
-        // };
-        // SDL_PushGPUComputeUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
-        // SDL_BindGPUComputeStorageBuffers(cullingPass, 0, &instanceBuffer, 1);
-        // // SDL_BindGPUComputeStorageBuffers(cullingPass, 1, &visibilityBuffer, 1);
-        // // SDL_BindGPUComputeStorageBuffers(cullingPass, 2, &visibleCounterBuffer, 1);
-        // SDL_DispatchGPUCompute(cullingPass, (instances.size() + 63) / 64, 1, 1);
-        // SDL_EndGPUComputePass(cullingPass);
+        // 1. Reset: seed each draw command with its mesh's index count and clear
+        //    the per-frame counters.
+        std::array<SDL_GPUStorageBufferReadWriteBinding, 2> resetRWBindings = {{
+            { .buffer = drawCommandBuffer },
+            { .buffer = writeCursorBuffer },
+        }};
+        SDL_GPUComputePass* resetPass = SDL_BeginGPUComputePass(cmd, nullptr, 0, resetRWBindings.data(), resetRWBindings.size());
+        SDL_BindGPUComputePipeline(resetPass, resetPipeline);
+        SDL_BindGPUComputeStorageBuffers(resetPass, 0, &meshBuffer, 1);
+        SDL_DispatchGPUCompute(resetPass, (static_cast<Uint32>(drawCommands.size()) + 63) / 64, 1, 1);
+        SDL_EndGPUComputePass(resetPass);
 
-        // // 3. command building pass
-        // SDL_Log("Begin command building pass");
-        // SDL_GPUComputePass* commandBuildingPass = SDL_BeginGPUComputePass(
-        //     cmd,
-        //     nullptr,
-        //     0,
-        //     (SDL_GPUStorageBufferReadWriteBinding[]){
-        //         {
-        //             .buffer = instanceBuffer,
-        //         },
-        //         {
-        //             .buffer = visibilityBuffer,
-        //         },
-        //         {
-        //             .buffer = visibleCounterBuffer,
-        //         },
-        //         {
-        //             .buffer = meshBuffer,
-        //         },
-        //         {
-        //             .buffer = drawCommandBuffer,
-        //         }
-        //     },
-        //     5
-        // );
-        // SDL_BindGPUComputePipeline(commandBuildingPass, commandBuildingPipeline);
-        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 0, &instanceBuffer, 1);
-        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 1, &visibilityBuffer, 1);
-        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 2, &visibleCounterBuffer, 1);
-        // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 3, &meshBuffer, 1);
-        // // SDL_BindGPUComputeStorageBuffers(commandBuildingPass, 4, &drawCommandBuffer, 1);
-        // SDL_DispatchGPUCompute(commandBuildingPass, (drawCommands.size() + 63) / 64, 1, 1);
-        // SDL_EndGPUComputePass(commandBuildingPass);
+        // 2. Cull + count: frustum-test each instance, flag survivors and count
+        //    them per mesh.
+        std::array<SDL_GPUStorageBufferReadWriteBinding, 2> cullRWBindings = {{
+            { .buffer = drawCommandBuffer },
+            { .buffer = visibilityBuffer },
+        }};
+        SDL_GPUComputePass* cullingPass = SDL_BeginGPUComputePass(cmd, nullptr, 0, cullRWBindings.data(), cullRWBindings.size());
+        SDL_BindGPUComputePipeline(cullingPass, cullingPipeline);
+        SDL_BindGPUComputeStorageBuffers(cullingPass, 0, &instanceBuffer, 1);
+        SDL_PushGPUComputeUniformData(cmd, 0, &cullViewProj, sizeof(glm::mat4));
+        SDL_DispatchGPUCompute(cullingPass, (static_cast<Uint32>(instances.size()) + 63) / 64, 1, 1);
+        SDL_EndGPUComputePass(cullingPass);
 
-        // // 4. prefix sum pass
-        // // TODO: reset the buffer every frame?
-        // SDL_Log("Begin prefix sum pass");
-        // SDL_GPUComputePass* prefixSumPass = SDL_BeginGPUComputePass(
-        //     cmd,
-        //     nullptr,
-        //     0,
-        //     (SDL_GPUStorageBufferReadWriteBinding[]){
-        //         {
-        //             .buffer = drawCommandBuffer,
-        //         },
-        //         {
-        //             .buffer = prefixSumBuffer,
-        //         }
-        //     },
-        //     2
-        // );
-        // SDL_BindGPUComputePipeline(prefixSumPass, prefixSumPipeline);
-        // SDL_DispatchGPUCompute(prefixSumPass, 1, 1, 1);
-        // SDL_EndGPUComputePass(prefixSumPass);
+        // 3. Build offsets: exclusive prefix sum of instanceCount -> firstInstance.
+        std::array<SDL_GPUStorageBufferReadWriteBinding, 1> buildRWBindings = {{
+            { .buffer = drawCommandBuffer },
+        }};
+        SDL_GPUComputePass* buildCommandsPass = SDL_BeginGPUComputePass(cmd, nullptr, 0, buildRWBindings.data(), buildRWBindings.size());
+        SDL_BindGPUComputePipeline(buildCommandsPass, buildCommandsPipeline);
+        SDL_DispatchGPUCompute(buildCommandsPass, 1, 1, 1);
+        SDL_EndGPUComputePass(buildCommandsPass);
+
+        // 4. Scatter: compact visible instance indices into per-mesh ranges.
+        std::array<SDL_GPUStorageBufferReadWriteBinding, 2> scatterRWBindings = {{
+            { .buffer = writeCursorBuffer },
+            { .buffer = compactedInstanceBuffer },
+        }};
+        SDL_GPUComputePass* scatterPass = SDL_BeginGPUComputePass(cmd, nullptr, 0, scatterRWBindings.data(), scatterRWBindings.size());
+        SDL_BindGPUComputePipeline(scatterPass, scatterPipeline);
+        std::array<SDL_GPUBuffer*, 3> scatterROBuffers = { instanceBuffer, visibilityBuffer, drawCommandBuffer };
+        SDL_BindGPUComputeStorageBuffers(scatterPass, 0, scatterROBuffers.data(), scatterROBuffers.size());
+        SDL_DispatchGPUCompute(scatterPass, (static_cast<Uint32>(instances.size()) + 63) / 64, 1, 1);
+        SDL_EndGPUComputePass(scatterPass);
 
         // 5. screen pass
         SDL_Log("Begin screen pass");
@@ -1365,16 +1330,20 @@ int main(int argc, char* args[]) {
                 //     SDL_DrawGPUPrimitives(renderPass, simpleCube.vertex_count(), 1, 0, 0);
                 // }
 
-                // Draw SSBO scene
-                // SDL_BindGPUGraphicsPipeline(renderPass, uberPipeline);
-                // camInfo = {
-                //     .view = camera.GetViewMatrix(),
-                //     .proj = camera.GetProjMatrix()
-                // };
-                // SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
-                // SDL_BindGPUVertexStorageBuffers(renderPass, 0, (SDL_GPUBuffer*[]){ instanceBuffer, meshBuffer, materialBuffer, vertexBuffer, indexBuffer }, 5);
-                // SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
-                // SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, drawCommandBuffer, 0, drawCommands.size());
+                // Draw SSBO scene via GPU-driven multi-draw indirect.
+                // One indirect command per mesh; the compute passes above filled
+                // in the visible instance counts, per-mesh offsets and compacted
+                // instance indices. Uber.vert pulls vertices/indices/instances
+                // from these storage buffers.
+                SDL_BindGPUGraphicsPipeline(renderPass, uberPipeline);
+                SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+                SDL_PushGPUFragmentUniformData(cmd, 0, &cameraPos, sizeof(glm::vec3));
+                std::array<SDL_GPUBuffer*, 5> uberVertexStorageBuffers = {
+                    instanceBuffer, meshBuffer, vertexBuffer, indexBuffer, compactedInstanceBuffer
+                };
+                SDL_BindGPUVertexStorageBuffers(renderPass, 0, uberVertexStorageBuffers.data(), static_cast<Uint32>(uberVertexStorageBuffers.size()));
+                SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
+                SDL_DrawGPUPrimitivesIndirect(renderPass, drawCommandBuffer, 0, static_cast<Uint32>(drawCommands.size()));
 
                 // Draw Sponza
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
@@ -1523,7 +1492,8 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUBuffer(device, visibilityBuffer);
     SDL_ReleaseGPUBuffer(device, visibleCounterBuffer);
     SDL_ReleaseGPUBuffer(device, drawCommandBuffer);
-    SDL_ReleaseGPUBuffer(device, prefixSumBuffer);
+    SDL_ReleaseGPUBuffer(device, writeCursorBuffer);
+    SDL_ReleaseGPUBuffer(device, compactedInstanceBuffer);
     SDL_ReleaseGPUBuffer(device, vertexBuffer);
     SDL_ReleaseGPUBuffer(device, indexBuffer);
     SDL_ReleaseGPUBuffer(device, particleBuffer0);
@@ -1534,10 +1504,10 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUComputePipeline(device, particleForcePipeline);
     SDL_ReleaseGPUComputePipeline(device, particleIntegratePipeline);
     SDL_ReleaseGPUComputePipeline(device, particleSingleBufferPipeline);
-    SDL_ReleaseGPUComputePipeline(device, resetCounterPipeline);
+    SDL_ReleaseGPUComputePipeline(device, resetPipeline);
     SDL_ReleaseGPUComputePipeline(device, cullingPipeline);
-    SDL_ReleaseGPUComputePipeline(device, commandBuildingPipeline);
-    SDL_ReleaseGPUComputePipeline(device, prefixSumPipeline);
+    SDL_ReleaseGPUComputePipeline(device, buildCommandsPipeline);
+    SDL_ReleaseGPUComputePipeline(device, scatterPipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, fillPipeline);
 	SDL_ReleaseGPUGraphicsPipeline(device, linePipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, uberPipeline);
