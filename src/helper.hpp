@@ -29,6 +29,11 @@ SDL_GPUComputePipeline* CreateComputePipelineFromShader(
 
 std::shared_ptr<Image> LoadImage(const char* filename);
 
+// Loads an equirectangular HDR environment map (.hdr) into an
+// R32G32B32A32_FLOAT sampler texture, uploading it via its own copy pass.
+// Returns nullptr if the file is missing/unreadable (the skybox is then skipped).
+SDL_GPUTexture* CreateHDRTexture(SDL_GPUDevice* device, const char* filename);
+
 std::shared_ptr<Scene> LoadGLTF(
     SDL_GPUDevice* device,
     const char* filename

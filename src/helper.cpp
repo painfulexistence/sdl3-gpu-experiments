@@ -1,6 +1,7 @@
 #include "helper.hpp"
 #include "SDL_gpu_shadercross.h"
 #include "scene.hpp"
+#include <cstring>
 #include <glm/ext/matrix_float4x4.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -151,6 +152,61 @@ std::shared_ptr<Image> LoadImage(const char* filename) {
     });
     stbi_image_free(data);
     return image;
+}
+
+SDL_GPUTexture* CreateHDRTexture(SDL_GPUDevice* device, const char* filename) {
+    std::string filePath = std::string(SDL_GetBasePath()) + "res/" + filename;
+
+    int width = 0, height = 0, numChannels = 0;
+    float* data = stbi_loadf(filePath.c_str(), &width, &height, &numChannels, 4);
+    if (!data) {
+        SDL_Log("Failed to load HDRI at %s: %s", filePath.c_str(), stbi_failure_reason());
+        return nullptr;
+    }
+    const Uint32 byteCount = static_cast<Uint32>(width) * static_cast<Uint32>(height) * 4u * static_cast<Uint32>(sizeof(float));
+
+    SDL_GPUTextureCreateInfo texInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT,
+        .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        .width = static_cast<Uint32>(width),
+        .height = static_cast<Uint32>(height),
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+    };
+    SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &texInfo);
+    if (!texture) {
+        SDL_Log("Failed to create HDRI texture for %s", filePath.c_str());
+        stbi_image_free(data);
+        return nullptr;
+    }
+
+    SDL_GPUTransferBufferCreateInfo tbInfo = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = byteCount,
+    };
+    SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(device, &tbInfo);
+    void* mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+    memcpy(mapped, data, byteCount);
+    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+    stbi_image_free(data);
+
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(device);
+    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTextureTransferInfo src = { .transfer_buffer = transferBuffer, .offset = 0 };
+    SDL_GPUTextureRegion dst = {
+        .texture = texture,
+        .w = static_cast<Uint32>(width),
+        .h = static_cast<Uint32>(height),
+        .d = 1,
+    };
+    SDL_UploadToGPUTexture(copyPass, &src, &dst, false);
+    SDL_EndGPUCopyPass(copyPass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+
+    SDL_Log("Loaded HDRI %s (%dx%d)", filePath.c_str(), width, height);
+    return texture;
 }
 
 std::shared_ptr<Scene> LoadGLTF(SDL_GPUDevice* device, const char* filename) {

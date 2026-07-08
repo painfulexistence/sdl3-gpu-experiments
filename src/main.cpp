@@ -24,6 +24,12 @@ struct CameraInfo {
     glm::mat4 proj;
 };
 
+struct SkyboxParams {
+    glm::mat4 invProj;
+    glm::mat4 invView;
+    float exposure;
+};
+
 struct SimpleInstance {
     glm::mat4 model;
 };
@@ -400,6 +406,40 @@ int main(int argc, char* args[]) {
         SDL_Log("Failed to create uber pipeline!");
         return -1;
     }
+
+    // HDRI skybox: fullscreen triangle, depth compare LEQUAL, no depth write, so
+    // it fills the background wherever the scene wrote no closer geometry.
+    SDL_GPUShader* skyboxVertexShader = LoadShader(device, "Skybox.vert", 0, 0, 0, 0);
+    SDL_GPUShader* skyboxFragmentShader = LoadShader(device, "Skybox.frag", 1, 1, 0, 0);
+    SDL_GPUGraphicsPipelineCreateInfo skyboxPipelineDesc = {
+        .vertex_shader = skyboxVertexShader,
+        .fragment_shader = skyboxFragmentShader,
+        .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = { .fill_mode = SDL_GPU_FILLMODE_FILL, .cull_mode = SDL_GPU_CULLMODE_NONE },
+        .multisample_state = { .sample_count = msaaSampleCount },
+        .depth_stencil_state = {
+            .compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL,
+            .enable_depth_test = true,
+            .enable_depth_write = false,
+        },
+        .target_info = {
+            .color_target_descriptions = colorTargetDescs.data(),
+            .num_color_targets = static_cast<Uint32>(colorTargetDescs.size()),
+            .depth_stencil_format = depthTargetFormat,
+            .has_depth_stencil_target = true,
+        },
+    };
+    SDL_GPUGraphicsPipeline* skyboxPipeline = SDL_CreateGPUGraphicsPipeline(device, &skyboxPipelineDesc);
+    if (skyboxPipeline == NULL) {
+        SDL_Log("Failed to create skybox pipeline!");
+        return -1;
+    }
+    SDL_ReleaseGPUShader(device, skyboxVertexShader);
+    SDL_ReleaseGPUShader(device, skyboxFragmentShader);
+
+    // Optional equirectangular HDR environment map. Skipped (nullptr) if the file
+    // is absent, in which case the clear color shows through instead.
+    SDL_GPUTexture* skyboxTexture = CreateHDRTexture(device, "images/environment.hdr");
     gfxPipelineDesc.vertex_shader = pbrVertexShader;
     gfxPipelineDesc.fragment_shader = pbrFragmentShader;
     gfxPipelineDesc.vertex_input_state = (SDL_GPUVertexInputState){
@@ -1313,6 +1353,22 @@ int main(int argc, char* args[]) {
                 }
                 if (useScissorRect) SDL_SetGPUScissor(renderPass, &ScissorRect);
 
+                // Draw HDRI skybox first (behind the scene). Reconstructs a world
+                // ray per pixel and samples the equirect map; depth write is off so
+                // the scene overwrites it wherever geometry is closer.
+                if (skyboxTexture != nullptr) {
+                    SDL_BindGPUGraphicsPipeline(renderPass, skyboxPipeline);
+                    SkyboxParams skyboxParams = {
+                        .invProj = glm::inverse(camInfo.proj),
+                        .invView = glm::inverse(camInfo.view),
+                        .exposure = 1.0f,
+                    };
+                    SDL_PushGPUFragmentUniformData(cmd, 0, &skyboxParams, sizeof(SkyboxParams));
+                    SDL_GPUTextureSamplerBinding skyboxBinding = { .texture = skyboxTexture, .sampler = sampler };
+                    SDL_BindGPUFragmentSamplers(renderPass, 0, &skyboxBinding, 1);
+                    SDL_DrawGPUPrimitives(renderPass, 3, 1, 0, 0);
+                }
+
                 // Draw cube
                 SDL_BindGPUGraphicsPipeline(renderPass, useWireframeMode ? linePipeline : fillPipeline);
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = { .texture = procTexture, .sampler = sampler };
@@ -1511,6 +1567,8 @@ int main(int argc, char* args[]) {
     SDL_ReleaseGPUGraphicsPipeline(device, fillPipeline);
 	SDL_ReleaseGPUGraphicsPipeline(device, linePipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, uberPipeline);
+    SDL_ReleaseGPUGraphicsPipeline(device, skyboxPipeline);
+    if (skyboxTexture != nullptr) SDL_ReleaseGPUTexture(device, skyboxTexture);
     SDL_ReleaseGPUGraphicsPipeline(device, pbrPipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, tonemapPipeline);
     SDL_ReleaseGPUGraphicsPipeline(device, particlePipeline);
