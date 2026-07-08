@@ -1057,6 +1057,10 @@ int main(int argc, char* args[]) {
     bool useWireframeMode = false;
     bool useSmallViewport = false;
     bool useScissorRect = false;
+    // GPU-driven rendering (compute cull -> multi-draw indirect over the SSBO
+    // scene) is OFF by default: the default path is the original direct draw.
+    // Press G to toggle it on.
+    bool useGpuDrivenCulling = false;
 
     SDL_GPUViewport fullViewport = { 0, static_cast<float>(windowHeight), static_cast<float>(windowWidth), -static_cast<float>(windowHeight), 0.1f, 1.0f };
     SDL_GPUViewport smallViewport = { 150, 350, 200, -200, 0.1f, 1.0f };
@@ -1077,6 +1081,12 @@ int main(int argc, char* args[]) {
             case SDL_EVENT_KEY_DOWN:
                 if (e.key.scancode == SDL_SCANCODE_ESCAPE) {
                     quit = true;
+                }
+                // Single-press toggle for the GPU-driven path (handled on key-down
+                // so it flips once per press, not every frame it is held).
+                if (e.key.scancode == SDL_SCANCODE_G) {
+                    useGpuDrivenCulling = !useGpuDrivenCulling;
+                    SDL_Log("GPU-driven culling + MDI: %s", useGpuDrivenCulling ? "ON" : "OFF");
                 }
                 keyboardState[e.key.scancode] = true;
                 break;
@@ -1275,6 +1285,8 @@ int main(int argc, char* args[]) {
         // commands entirely on the GPU. SDL_gpu inserts the barriers between
         // these compute passes automatically (each buffer is written with the
         // default cycle=false so later passes see the previous pass's results).
+        // Skipped unless the GPU-driven path is toggled on (default: direct draw).
+        if (useGpuDrivenCulling) {
         glm::mat4 cullViewProj = camInfo.proj * camInfo.view;
 
         // 1. Reset: seed each draw command with its mesh's index count and clear
@@ -1322,6 +1334,7 @@ int main(int argc, char* args[]) {
         SDL_BindGPUComputeStorageBuffers(scatterPass, 0, scatterROBuffers.data(), scatterROBuffers.size());
         SDL_DispatchGPUCompute(scatterPass, (static_cast<Uint32>(instances.size()) + 63) / 64, 1, 1);
         SDL_EndGPUComputePass(scatterPass);
+        } // useGpuDrivenCulling (compute cull passes)
 
         // 5. screen pass
         SDL_Log("Begin screen pass");
@@ -1386,20 +1399,22 @@ int main(int argc, char* args[]) {
                 //     SDL_DrawGPUPrimitives(renderPass, simpleCube.vertex_count(), 1, 0, 0);
                 // }
 
-                // Draw SSBO scene via GPU-driven multi-draw indirect.
-                // One indirect command per mesh; the compute passes above filled
-                // in the visible instance counts, per-mesh offsets and compacted
-                // instance indices. Uber.vert pulls vertices/indices/instances
-                // from these storage buffers.
-                SDL_BindGPUGraphicsPipeline(renderPass, uberPipeline);
-                SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
-                SDL_PushGPUFragmentUniformData(cmd, 0, &cameraPos, sizeof(glm::vec3));
-                std::array<SDL_GPUBuffer*, 5> uberVertexStorageBuffers = {
-                    instanceBuffer, meshBuffer, vertexBuffer, indexBuffer, compactedInstanceBuffer
-                };
-                SDL_BindGPUVertexStorageBuffers(renderPass, 0, uberVertexStorageBuffers.data(), static_cast<Uint32>(uberVertexStorageBuffers.size()));
-                SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
-                SDL_DrawGPUPrimitivesIndirect(renderPass, drawCommandBuffer, 0, static_cast<Uint32>(drawCommands.size()));
+                // Draw SSBO scene via GPU-driven multi-draw indirect (only when
+                // the GPU-driven path is toggled on). One indirect command per
+                // mesh; the compute passes above filled in the visible instance
+                // counts, per-mesh offsets and compacted instance indices.
+                // Uber.vert pulls vertices/indices/instances from storage buffers.
+                if (useGpuDrivenCulling) {
+                    SDL_BindGPUGraphicsPipeline(renderPass, uberPipeline);
+                    SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
+                    SDL_PushGPUFragmentUniformData(cmd, 0, &cameraPos, sizeof(glm::vec3));
+                    std::array<SDL_GPUBuffer*, 5> uberVertexStorageBuffers = {
+                        instanceBuffer, meshBuffer, vertexBuffer, indexBuffer, compactedInstanceBuffer
+                    };
+                    SDL_BindGPUVertexStorageBuffers(renderPass, 0, uberVertexStorageBuffers.data(), static_cast<Uint32>(uberVertexStorageBuffers.size()));
+                    SDL_BindGPUFragmentStorageBuffers(renderPass, 0, &materialBuffer, 1);
+                    SDL_DrawGPUPrimitivesIndirect(renderPass, drawCommandBuffer, 0, static_cast<Uint32>(drawCommands.size()));
+                }
 
                 // Draw Sponza
                 SDL_PushGPUVertexUniformData(cmd, 0, &camInfo, sizeof(CameraInfo));
