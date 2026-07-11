@@ -1,0 +1,47 @@
+#version 450
+
+// GPU-driven pass 1/4 - Reset.
+// Runs once per frame before culling. Seeds every draw command with its static
+// mesh info and clears the per-frame counters (instanceCount + write cursor) so
+// nothing accumulates across frames.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct MeshInfo {
+    int baseVertex;
+    uint baseIndex;
+    uint indexCount;
+};
+
+// Matches SDL_GPUIndirectDrawCommand.
+struct DrawCommand {
+    uint vertexCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint firstInstance;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer MeshBuffer {
+    MeshInfo meshInfos[];
+};
+
+layout(std430, set = 1, binding = 0) buffer CommandBuffer {
+    DrawCommand commands[];
+};
+
+layout(std430, set = 1, binding = 1) buffer CursorBuffer {
+    uint writeCursors[];
+};
+
+void main() {
+    uint m = gl_GlobalInvocationID.x;
+    if (m >= commands.length()) return;
+
+    // One draw command per mesh. vertexCount is the number of indices because we
+    // pull indices manually in the vertex shader (non-indexed indirect draw).
+    commands[m].vertexCount = meshInfos[m].indexCount;
+    commands[m].instanceCount = 0u;
+    commands[m].firstVertex = 0u;
+    commands[m].firstInstance = 0u;
+    writeCursors[m] = 0u;
+}

@@ -1,0 +1,34 @@
+#version 450
+
+// GPU-driven pass 3/4 - Build instance offsets (exclusive prefix sum).
+// After culling, each command holds its per-mesh visible instance count. This
+// pass converts those counts into contiguous ranges by writing firstInstance =
+// exclusive prefix sum of instanceCount. The compacted instance buffer is then
+// laid out mesh-by-mesh, so gl_InstanceIndex (which already includes
+// firstInstance) indexes it directly in the vertex shader.
+//
+// The mesh count is tiny, so a single serial invocation is the simplest correct
+// implementation (a parallel scan is unnecessary here).
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct DrawCommand {
+    uint vertexCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint firstInstance;
+};
+
+layout(std430, set = 1, binding = 0) buffer CommandBuffer {
+    DrawCommand commands[];
+};
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u) return;
+
+    uint offset = 0u;
+    for (uint m = 0u; m < commands.length(); ++m) {
+        commands[m].firstInstance = offset;
+        offset += commands[m].instanceCount;
+    }
+}

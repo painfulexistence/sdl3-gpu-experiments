@@ -1,0 +1,52 @@
+#version 450
+
+// GPU-driven pass 4/4 - Scatter (instance compaction).
+// Writes each visible instance's original index into the compacted instance
+// buffer at commands[meshID].firstInstance + (atomic per-mesh cursor). After
+// this pass the compacted buffer is grouped by mesh, matching the draw command
+// ranges, ready for a single multi-draw indirect call.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Instance {
+    mat4 model;
+    uint meshID;
+    uint materialID;
+};
+
+struct DrawCommand {
+    uint vertexCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint firstInstance;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBuffer {
+    Instance instances[];
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer VisibilityBuffer {
+    uint visibleFlags[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer CommandBuffer {
+    DrawCommand commands[];
+};
+
+layout(std430, set = 1, binding = 0) buffer CursorBuffer {
+    uint writeCursors[];
+};
+
+layout(std430, set = 1, binding = 1) buffer CompactedInstanceBuffer {
+    uint compactedInstances[];
+};
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= instances.length()) return;
+    if (visibleFlags[id] == 0u) return;
+
+    uint meshID = instances[id].meshID;
+    uint slot = commands[meshID].firstInstance + atomicAdd(writeCursors[meshID], 1u);
+    compactedInstances[slot] = id;
+}
